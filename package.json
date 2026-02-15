@@ -1,0 +1,38 @@
+{
+  "name": "workspace-heatmap",
+  "version": "0.1.0",
+  "description": "Track and visualize which files your AI agent actually reads. Heatmap your workspace.",
+  "type": "module",
+  "bin": {
+    "workspace-heatmap": "./bin/cli.mjs",
+    "whm": "./bin/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./tracker": "./src/tracker.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "workspace",
+    "heatmap",
+    "claude-code",
+    "openclaw",
+    "observability",
+    "file-tracking"
+  ],
+  "author": "Sorin Guga <sorin@guga.ro>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-Guga-Pantheon/workspace-heatmap.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

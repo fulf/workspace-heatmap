@@ -1,0 +1,206 @@
+#!/usr/bin/env node
+/**
+ * workspace-heatmap CLI
+ *
+ * Commands:
+ *   init              Set up tracking for current workspace
+ *   track <file>      Log a file read (used by hooks)
+ *   report            Show the heatmap
+ *   mine              Extract reads from session transcripts
+ *   status            Show tracking status
+ */
+
+import { resolve } from 'node:path'
+
+const args = process.argv.slice(2)
+const command = args[0]
+
+function parseFlags(args) {
+  const flags = {}
+  const positional = []
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('--')) {
+      const key = args[i].slice(2)
+      if (args[i + 1] && !args[i + 1].startsWith('--')) {
+        flags[key] = args[++i]
+      } else {
+        flags[key] = true
+      }
+    } else {
+      positional.push(args[i])
+    }
+  }
+  return { flags, positional }
+}
+
+async function main() {
+  const { flags, positional } = parseFlags(args.slice(1))
+
+  switch (command) {
+    case 'init': {
+      const { init } = await import('../src/init.mjs')
+      const result = init({
+        workspace: flags.workspace || process.cwd(),
+        force: flags.force || false,
+      })
+
+      console.log()
+      console.log(`\x1b[1m📊 workspace-heatmap initialized\x1b[0m`)
+      console.log(`\x1b[2mWorkspace: ${result.workspace}\x1b[0m`)
+      console.log(`\x1b[2mData dir:  ${result.heatmapDir}\x1b[0m`)
+      console.log()
+
+      const env = result.environment
+      console.log(`\x1b[1mDetected:\x1b[0m`)
+      if (env.claudeCode) console.log(`  ✅ Claude Code (.claude/ found)`)
+      if (env.openClaw) console.log(`  ✅ OpenClaw (AGENTS.md + SOUL.md found)`)
+      if (env.git) console.log(`  ✅ Git repository`)
+      if (!env.claudeCode && !env.openClaw) console.log(`  ℹ️  Generic workspace (no agent framework detected)`)
+      console.log()
+
+      for (const inst of result.installations) {
+        if (inst.installed) {
+          console.log(`  \x1b[32m✓\x1b[0m Installed ${inst.target} hook${inst.file ? ` → ${inst.file}` : ''}`)
+        } else {
+          console.log(`  \x1b[33m⊘\x1b[0m ${inst.target}: ${inst.reason}`)
+        }
+      }
+
+      console.log()
+      console.log(`\x1b[2mNext: Your agent's file reads are now tracked.`)
+      console.log(`Run \x1b[0m\x1b[36mwhm report\x1b[0m\x1b[2m after a few sessions to see the heatmap.\x1b[0m`)
+      console.log()
+      break
+    }
+
+    case 'track': {
+      const { track } = await import('../src/tracker.mjs')
+      const file = positional[0]
+      if (!file) {
+        process.exit(0) // Silent no-op
+      }
+      track({
+        file,
+        tool: flags.tool || 'Read',
+        session: flags.session || process.env.OPENCLAW_SESSION_ID || null,
+        dir: flags.dir || null,
+        workspace: flags.workspace || process.cwd(),
+      })
+      break
+    }
+
+    case 'report': {
+      const { report } = await import('../src/report.mjs')
+      report({
+        dir: flags.dir || null,
+        workspace: flags.workspace || process.cwd(),
+        days: parseInt(flags.days || '30', 10),
+        json: flags.json || false,
+        all: flags.all || false,
+      })
+      break
+    }
+
+    case 'mine': {
+      const { mine } = await import('../src/mine.mjs')
+      const dirs = positional.length > 0 ? positional : []
+      if (dirs.length === 0) {
+        console.error('Usage: whm mine <transcript-dir> [<transcript-dir>...] [--format openclaw|claude-code]')
+        console.error('')
+        console.error('Example:')
+        console.error('  whm mine ~/.openclaw/agents/main/sessions/')
+        console.error('  whm mine ./sessions/ --format claude-code --dry-run')
+        process.exit(1)
+      }
+
+      const result = mine({
+        transcriptDirs: dirs.map(d => resolve(d)),
+        workspace: flags.workspace || process.cwd(),
+        dir: flags.dir || null,
+        format: flags.format || 'openclaw',
+        dryRun: flags['dry-run'] || false,
+      })
+
+      if (!flags['dry-run']) {
+        console.log(`\x1b[32m✓\x1b[0m Mined ${result.totalEntries} file reads from ${result.totalFiles} transcripts`)
+      }
+      break
+    }
+
+    case 'status': {
+      const { existsSync, readFileSync, statSync } = await import('node:fs')
+      const { join } = await import('node:path')
+      const ws = flags.workspace || process.cwd()
+      const heatmapDir = join(ws, '.heatmap')
+      const logPath = join(heatmapDir, 'access.jsonl')
+
+      console.log()
+      console.log(`\x1b[1m📊 workspace-heatmap status\x1b[0m`)
+      console.log(`\x1b[2mWorkspace: ${ws}\x1b[0m`)
+      console.log()
+
+      if (!existsSync(logPath)) {
+        console.log(`  \x1b[33m⊘\x1b[0m No data yet. Run \x1b[36mwhm init\x1b[0m to start tracking.`)
+      } else {
+        const content = readFileSync(logPath, 'utf-8')
+        const lines = content.trim().split('\n').filter(Boolean)
+        const stat = statSync(logPath)
+        const sizeKB = Math.round(stat.size / 1024)
+        const uniqueFiles = new Set(lines.map(l => { try { return JSON.parse(l).f } catch { return null } }).filter(Boolean))
+
+        console.log(`  📁 Log: ${logPath}`)
+        console.log(`  📏 Size: ${sizeKB} KB (${lines.length} entries)`)
+        console.log(`  📂 Unique files: ${uniqueFiles.size}`)
+
+        if (lines.length > 0) {
+          const last = JSON.parse(lines[lines.length - 1])
+          const age = Math.floor((Date.now() / 1000 - last.ts) / 60)
+          console.log(`  🕐 Last tracked: ${age} min ago`)
+        }
+      }
+      console.log()
+      break
+    }
+
+    case 'help':
+    case '--help':
+    case '-h':
+    case undefined: {
+      console.log(`
+\x1b[1mworkspace-heatmap\x1b[0m — Track which files your AI agent actually reads
+
+\x1b[1mUsage:\x1b[0m
+  whm init                         Set up tracking in current workspace
+  whm track <file>                 Log a file read (called by hooks)
+  whm report [--days N] [--all]    Show the heatmap
+  whm mine <dir> [--format F]      Extract reads from session transcripts
+  whm status                       Show tracking status
+
+\x1b[1mOptions:\x1b[0m
+  --workspace <path>    Override workspace directory
+  --dir <path>          Override .heatmap directory
+  --days <N>            Report period in days (default: 30)
+  --all                 Include dead files in report
+  --json                JSON output (report)
+  --format <F>          Transcript format: openclaw, claude-code (mine)
+  --dry-run             Preview without writing (mine)
+
+\x1b[1mExamples:\x1b[0m
+  cd ~/my-agent && whm init
+  whm report --days 7 --all
+  whm mine ~/.openclaw/agents/main/sessions/
+  whm report --json | jq '.files[:5]'
+`)
+      break
+    }
+
+    default:
+      console.error(`Unknown command: ${command}. Run \x1b[36mwhm --help\x1b[0m for usage.`)
+      process.exit(1)
+  }
+}
+
+main().catch(err => {
+  console.error(err)
+  process.exit(1)
+})
