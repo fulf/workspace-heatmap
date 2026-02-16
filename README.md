@@ -11,6 +11,10 @@ AI agents read workspace files every session — but do they read *all* of them?
 - 🟡 **Warm** files — read weekly (working memory)
 - 🔵 **Cold** files — rarely read (candidates for skills or archiving)
 - ⚫ **Dead** files — never read (prune or investigate why)
+- 📋 **Documentation coverage** — what % of your .md files are actually read?
+- 🚀 **Boot sequence** — which files your agent loads first, every session
+- ⏰ **Stale docs** — frequently read but never updated
+- 💰 **Token budget** — estimated token cost of all file reads
 
 ## Quick Start
 
@@ -80,6 +84,7 @@ The miner automatically deduplicates — running it twice on the same transcript
 ```bash
 whm report              # Last 30 days (terminal)
 whm report --days 7     # Last 7 days
+whm report --days=7     # Also works with = syntax
 whm report --all        # Include dead (never-read) files
 whm report --json       # JSON output for scripting
 ```
@@ -97,7 +102,11 @@ whm insights --no-open              # Don't auto-open
 
 The report includes:
 - 📊 At-a-glance summary with workspace health assessment
+- 📋 **Documentation health** — coverage score, unread .md files
+- 🚀 **Boot sequence** — files consistently loaded at session start
 - 🔴🟡🔵 File heatmap with tiers (hot/warm/cold/dead)
+- 💰 **Token budget** — estimated token cost per file and total
+- ⏰ **Stale documentation** — frequently read, rarely updated files
 - 📈 Daily trend sparkline
 - 🕐 Access patterns (time of day, day of week)
 - 📁 Directory heatmap
@@ -113,6 +122,55 @@ whm mine <dir> --include-writes   # Track Write/Edit too
 whm mine <dir> --force            # Re-mine everything
 whm mine <dir> --dry-run          # Preview without writing
 ```
+
+## Documentation Coverage (v0.4.0)
+
+The primary use case improvement: understand whether your AI documentation is actually useful.
+
+### Documentation Health Score
+
+```
+📋 Documentation Health
+  Coverage: 8 of 23 .md files read (35%)
+  Unread:  CONTRIBUTING.md, ideas/001-specialized-agents.md, old-notes/setup-log.md …
+```
+
+Counts all `.md` files in your workspace, shows how many your agent actually reads, and lists the unread ones. Low coverage means your agent is missing documentation — or you have files that aren't needed.
+
+### Boot File Detection
+
+```
+🚀 Boot Sequence (first 5 reads, >80% of sessions)
+  AGENTS.md                   100% (34/34 sessions)
+  SOUL.md                      95% (32/34 sessions)
+  memory/2026-02-15.md          92% (31/34 sessions)
+  USER.md                      41% (14/34 sessions)  ← inconsistent!
+```
+
+Identifies files that appear in the first 5 reads of >80% of sessions. These are your agent's "boot files" — its startup sequence. If an important file isn't consistently loaded, something may be wrong with your AGENTS.md instructions.
+
+### Staleness Detection
+
+```
+⏰ Stale Documentation (read often, not updated)
+  TOOLS.md                     52 reads · last modified 6w ago
+  USER.md                      44 reads · last modified 12w ago
+```
+
+Cross-references read frequency with file modification time (`mtime`). Files read >10 times but not modified in >2× the reporting period are flagged as potentially stale. Your agent may be consuming outdated information every session.
+
+### Token Cost Estimation
+
+```
+💰 Token Budget (estimated)
+  AGENTS.md                    ~2,100 tok × 142 = 298K tokens
+  MEMORY.md                    ~1,800 tok × 128 = 230K tokens
+  SOUL.md                      ~500 tok × 38 = 19K tokens
+  ──────────────────────────────────────────────────────────
+  Total:                       ~612K tokens on file reads
+```
+
+Estimates tokens per file read (file_size_bytes ÷ 4), multiplied by read count. Shows where your token budget is going. A file that costs 2K tokens per read × 142 reads = 284K tokens/month is powerful motivation to trim it.
 
 ## Example Output
 
@@ -134,15 +192,27 @@ whm mine <dir> --dry-run          # Preview without writing
   IDENTITY.md                          ██                      8   5d ago
   ideas/032-superset-assistant.md      █                       3  12d ago
 
-⚫ DEAD — never read (12 files)
-  ideas/001-specialized-agents.md
-  old-notes/setup-log.md
-  ...
+📋 Documentation Health
+  Coverage: 8 of 23 .md files read (35%)
+  Unread:  CONTRIBUTING.md, ideas/001-specialized-agents.md, ...
+
+🚀 Boot Sequence (first 5 reads, >80% of sessions)
+  AGENTS.md                            100% (34/34 sessions)
+  SOUL.md                               95% (32/34 sessions)
+
+⏰ Stale Documentation (read often, not updated)
+  TOOLS.md                             52 reads · last modified 6w ago
+
+💰 Token Budget (estimated)
+  AGENTS.md                            ~2,100 tok × 142 = 298K tokens
+  MEMORY.md                            ~1,800 tok × 128 = 230K tokens
+  Total:                               ~612K tokens on file reads
 
 💡 Insights
   → AGENTS.md is 17% of all reads — keep it lean
   → 8 files rarely read — consider moving to skills or archiving
   → 12 files never read — dead weight in your workspace
+  → Only 35% of .md files read — your agent may be missing documentation
   → Tracked across 34 sessions
 ```
 
@@ -207,6 +277,9 @@ No. Since v0.3.0, the miner tracks which files have been processed (via content 
 
 **Can I track writes too?**
 Yes! Use `--include-writes` when mining, or log manually: `whm track <file> --tool Write`.
+
+**Do the new features (docs health, boot files, etc.) need re-mining?**
+No! All new v0.4.0 features work with existing logged data. No re-mining required.
 
 ## License
 

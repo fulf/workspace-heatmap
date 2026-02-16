@@ -175,6 +175,9 @@ export function mine({
   let totalFiles = 0
   let skippedFiles = 0
 
+  // Buffer all entries, write once at the end
+  const buffer = []
+
   for (const tDir of transcriptDirs) {
     if (!existsSync(tDir)) {
       console.error(`Warning: transcript dir not found: ${tDir}`)
@@ -222,11 +225,16 @@ export function mine({
         if (dryRun) {
           console.log(JSON.stringify(logEntry))
         } else {
-          appendFileSync(logPath, JSON.stringify(logEntry) + '\n')
+          buffer.push(JSON.stringify(logEntry))
         }
         totalEntries++
       }
     }
+  }
+
+  // Flush buffer in one write
+  if (!dryRun && buffer.length > 0) {
+    appendFileSync(logPath, buffer.join('\n') + '\n')
   }
 
   // Save dedup state

@@ -3,83 +3,45 @@
  * Inspired by Claude Code's /insights report.
  */
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
-import { resolve, join, dirname, basename, relative } from 'node:path'
-import { execSync } from 'node:child_process'
+import { writeFileSync, existsSync } from 'node:fs'
+import { resolve, join, dirname, basename } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import {
+  loadEntries, getAllWorkspaceFiles, formatAge,
+  formatTokens, computeCoverage,
+} from './utils.mjs'
 
 const DEFAULT_DIR = '.heatmap'
-const LOG_FILE = 'access.jsonl'
 
-function loadEntries(heatmapDir, daysBack = 30) {
-  const logPath = join(heatmapDir, LOG_FILE)
-  if (!existsSync(logPath)) return []
-  const cutoff = Math.floor(Date.now() / 1000) - (daysBack * 86400)
-  return readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean)
-    .map(line => { try { return JSON.parse(line) } catch { return null } })
-    .filter(e => e && e.ts >= cutoff)
-}
+/* ── Analysis sub-functions ────────────────────────────────────────── */
 
-function getAllWorkspaceFiles(workspace, ignorePatterns = ['.git', 'node_modules', '.heatmap']) {
-  const files = []
-  function walk(dir, prefix = '') {
-    let entries
-    try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
-    for (const entry of entries) {
-      if (ignorePatterns.includes(entry.name)) continue
-      const relPath = prefix ? `${prefix}/${entry.name}` : entry.name
-      if (entry.isDirectory()) walk(join(dir, entry.name), relPath)
-      else files.push(relPath)
-    }
-  }
-  walk(workspace)
-  return files
-}
-
-function analyze(entries, allFiles, days) {
-  const now = Math.floor(Date.now() / 1000)
-  const fileCounts = {}
-  const fileLastAccess = {}
-  const fileSessions = {}
-  const fileTimestamps = {}
-  const sessionReads = {}
-  const hourCounts = new Array(24).fill(0)
-  const dowCounts = new Array(7).fill(0) // 0=Sun
-
-  for (const e of entries) {
-    fileCounts[e.f] = (fileCounts[e.f] || 0) + 1
-    fileLastAccess[e.f] = Math.max(fileLastAccess[e.f] || 0, e.ts)
-    if (!fileTimestamps[e.f]) fileTimestamps[e.f] = []
-    fileTimestamps[e.f].push(e.ts)
-    if (e.s) {
-      if (!fileSessions[e.f]) fileSessions[e.f] = new Set()
-      fileSessions[e.f].add(e.s)
-      sessionReads[e.s] = (sessionReads[e.s] || 0) + 1
-    }
-    const d = new Date(e.ts * 1000)
-    hourCounts[d.getUTCHours()]++
-    dowCounts[d.getUTCDay()]++
-  }
-
-  // Tiers
+function computeTiers(sorted, totalEntries, fileLastAccess, fileSessions, days) {
   const dailyThreshold = days
   const weeklyThreshold = Math.max(Math.floor(days / 7), 1)
-  const sorted = Object.entries(fileCounts).sort((a, b) => b[1] - a[1])
-  const maxCount = sorted[0]?.[1] || 1
-
   const tiers = { hot: [], warm: [], cold: [] }
+
   for (const [file, count] of sorted) {
     const tier = count >= dailyThreshold ? 'hot' : count >= weeklyThreshold ? 'warm' : 'cold'
     tiers[tier].push({
       file, count, tier,
       lastAccess: fileLastAccess[file],
       sessions: fileSessions[file]?.size || 0,
-      pct: Math.round((count / entries.length) * 100),
+      pct: Math.round((count / totalEntries) * 100),
     })
   }
 
-  // Dead files
-  const readFiles = new Set(Object.keys(fileCounts))
-  const deadFiles = allFiles.filter(f => !readFiles.has(f))
+  return tiers
+}
+
+function computePatterns(entries, sorted, sessionReads) {
+  const hourCounts = new Array(24).fill(0)
+  const dowCounts = new Array(7).fill(0) // 0=Sun
+
+  for (const e of entries) {
+    const d = new Date(e.ts * 1000)
+    hourCounts[d.getUTCHours()]++
+    dowCounts[d.getUTCDay()]++
+  }
 
   // Directory heatmap
   const dirCounts = {}
@@ -91,7 +53,6 @@ function analyze(entries, allFiles, days) {
 
   // Session stats
   const sessionSorted = Object.entries(sessionReads).sort((a, b) => b[1] - a[1])
-  const uniqueSessions = sessionSorted.length
 
   // File extension breakdown
   const extCounts = {}
@@ -101,12 +62,7 @@ function analyze(entries, allFiles, days) {
   }
   const extSorted = Object.entries(extCounts).sort((a, b) => b[1] - a[1])
 
-  // Time span
-  const timestamps = entries.map(e => e.ts).sort((a, b) => a - b)
-  const firstRead = timestamps[0] ? new Date(timestamps[0] * 1000) : null
-  const lastRead = timestamps.length ? new Date(timestamps[timestamps.length - 1] * 1000) : null
-
-  // "Reads per day" trend (last N days, bucketed)
+  // Daily trend
   const dayBuckets = {}
   for (const e of entries) {
     const dayKey = new Date(e.ts * 1000).toISOString().slice(0, 10)
@@ -114,32 +70,69 @@ function analyze(entries, allFiles, days) {
   }
   const dailyTrend = Object.entries(dayBuckets).sort((a, b) => a[0].localeCompare(b[0]))
 
-  // Compute concentration (top files % of total)
+  return { hourCounts, dowCounts, dirSorted, sessionSorted, extSorted, dailyTrend }
+}
+
+function analyze(entries, allFiles, workspace, days) {
+  const now = Math.floor(Date.now() / 1000)
+
+  // Core aggregation
+  const fileCounts = {}
+  const fileLastAccess = {}
+  const fileSessions = {}
+  const sessionReads = {}
+
+  for (const e of entries) {
+    fileCounts[e.f] = (fileCounts[e.f] || 0) + 1
+    fileLastAccess[e.f] = Math.max(fileLastAccess[e.f] || 0, e.ts)
+    if (e.s) {
+      if (!fileSessions[e.f]) fileSessions[e.f] = new Set()
+      fileSessions[e.f].add(e.s)
+      sessionReads[e.s] = (sessionReads[e.s] || 0) + 1
+    }
+  }
+
+  const sorted = Object.entries(fileCounts).sort((a, b) => b[1] - a[1])
+  const maxCount = sorted[0]?.[1] || 1
+
+  // Sub-computations
+  const tiers = computeTiers(sorted, entries.length, fileLastAccess, fileSessions, days)
+  const patterns = computePatterns(entries, sorted, sessionReads)
+  const coverage = computeCoverage(entries, allFiles, workspace, days)
+
+  // Dead files
+  const readFiles = new Set(Object.keys(fileCounts))
+  const deadFiles = allFiles.filter(f => !readFiles.has(f))
+
+  // Timestamps
+  const timestamps = entries.map(e => e.ts).sort((a, b) => a - b)
+  const firstRead = timestamps[0] ? new Date(timestamps[0] * 1000) : null
+  const lastRead = timestamps.length ? new Date(timestamps[timestamps.length - 1] * 1000) : null
+
+  // Top-5 concentration
   const top5reads = sorted.slice(0, 5).reduce((s, [, c]) => s + c, 0)
   const top5pct = entries.length > 0 ? Math.round((top5reads / entries.length) * 100) : 0
 
   return {
     total: entries.length,
     uniqueFiles: Object.keys(fileCounts).length,
-    uniqueSessions,
+    uniqueSessions: Object.keys(sessionReads).length,
     days,
     maxCount,
     tiers,
     deadFiles,
-    dirSorted,
-    sessionSorted,
-    extSorted,
-    hourCounts,
-    dowCounts,
-    firstRead,
-    lastRead,
-    dailyTrend,
-    top5pct,
     sorted,
     now,
     fileLastAccess,
+    firstRead,
+    lastRead,
+    top5pct,
+    coverage,
+    ...patterns,
   }
 }
+
+/* ── HTML helpers ──────────────────────────────────────────────────── */
 
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -148,16 +141,6 @@ function esc(s) {
 function formatDate(d) {
   if (!d) return '—'
   return d.toISOString().slice(0, 10)
-}
-
-function formatAge(seconds) {
-  const hours = Math.floor(seconds / 3600)
-  if (hours < 1) return `${Math.floor(seconds / 60)}m ago`
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-  const weeks = Math.floor(days / 7)
-  return `${weeks}w ago`
 }
 
 function barHtml(count, maxCount, color = '#2563eb') {
@@ -174,11 +157,23 @@ function buildGlance(data) {
     lines.push(`<strong>Hottest files:</strong> ${topFiles} — read every session. These dominate your token budget; keep them lean and focused.`)
   }
 
+  // Documentation coverage
+  if (data.coverage.mdTotal > 0) {
+    const covPct = data.coverage.mdCoverage
+    const emoji = covPct >= 70 ? '✅' : covPct >= 40 ? '⚠️' : '🔴'
+    lines.push(`<strong>Documentation coverage:</strong> ${emoji} ${data.coverage.mdRead} of ${data.coverage.mdTotal} markdown files are actually read (${covPct}%). ${covPct < 50 ? 'Your agent may be missing important documentation.' : 'Good coverage.'}`)
+  }
+
   // Concentration
   if (data.top5pct > 50) {
     lines.push(`<strong>High concentration:</strong> Your top 5 files account for ${data.top5pct}% of all reads. Your agent has a narrow focus — great for efficiency, but make sure it's not missing important context in cold files.`)
   } else if (data.top5pct < 30 && data.uniqueFiles > 10) {
     lines.push(`<strong>Distributed reads:</strong> Your agent spreads attention across many files (top 5 = only ${data.top5pct}%). Good coverage, but check if some reads are unnecessary.`)
+  }
+
+  // Token budget
+  if (data.coverage.totalTokens > 0) {
+    lines.push(`<strong>Token spend:</strong> ~${formatTokens(data.coverage.totalTokens)} tokens estimated on file reads in this period. ${data.coverage.totalTokens > 500000 ? 'That\'s significant — make sure every read earns its keep.' : ''}`)
   }
 
   // Dead zone
@@ -193,6 +188,8 @@ function buildGlance(data) {
 
   return lines
 }
+
+/* ── HTML Generation ───────────────────────────────────────────────── */
 
 function generateHtml(data, workspace) {
   const wsName = basename(workspace)
@@ -274,6 +271,20 @@ function generateHtml(data, workspace) {
       desc: 'High concentration means your agent knows what matters. But double-check that it\'s not ignoring files it should be reading.',
     })
   }
+  if (data.coverage.mdTotal > 0 && data.coverage.mdCoverage < 50) {
+    insights.push({
+      icon: '📝',
+      title: `Only ${data.coverage.mdCoverage}% of markdown files are read`,
+      desc: `${data.coverage.mdUnread.length} documentation files sit untouched. Your agent may be missing important context — or these files aren't needed.`,
+    })
+  }
+  if (data.coverage.staleFiles.length > 0) {
+    insights.push({
+      icon: '⏰',
+      title: `${data.coverage.staleFiles.length} frequently-read files may be stale`,
+      desc: 'These files are read often but haven\'t been modified recently. The agent consumes potentially outdated information every session.',
+    })
+  }
   const avgReadsPerSession = data.uniqueSessions > 0 ? Math.round(data.total / data.uniqueSessions) : 0
   if (avgReadsPerSession > 0) {
     insights.push({
@@ -284,6 +295,26 @@ function generateHtml(data, workspace) {
         : 'Track more sessions to see patterns.',
     })
   }
+
+  // — Coverage sections —
+  const cov = data.coverage
+
+  const covPctColor = cov.mdCoverage >= 70 ? '#059669' : cov.mdCoverage >= 40 ? '#d97706' : '#dc2626'
+  const covBgColor = cov.mdCoverage >= 70 ? '#ecfdf5' : cov.mdCoverage >= 40 ? '#fffbeb' : '#fef2f2'
+
+  // — Nav links —
+  const navLinks = [
+    { href: '#doc-health', label: 'Docs Health', show: cov.mdTotal > 0 },
+    { href: '#boot', label: 'Boot Sequence', show: cov.bootFiles.length > 0 },
+    { href: '#heatmap', label: 'Heatmap', show: true },
+    { href: '#tokens', label: 'Token Budget', show: cov.tokenEstimates.length > 0 },
+    { href: '#stale', label: 'Stale Docs', show: cov.staleFiles.length > 0 },
+    { href: '#patterns', label: 'Patterns', show: true },
+    { href: '#directories', label: 'Directories', show: true },
+    { href: '#trend', label: 'Trend', show: data.dailyTrend.length > 1 },
+    { href: '#insights', label: 'Insights', show: true },
+    { href: '#dead', label: 'Dead Files', show: data.deadFiles.length > 0 },
+  ]
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -344,7 +375,47 @@ function generateHtml(data, workspace) {
     .footer { text-align: center; margin-top: 48px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
     .footer a { color: #64748b; text-decoration: none; font-size: 13px; }
     .footer a:hover { color: #334155; }
-    @media (max-width: 640px) { .charts-row { grid-template-columns: 1fr; } .stats-row { justify-content: center; } .file-row { grid-template-columns: minmax(0, 1fr) 80px 30px; } .file-meta { display: none; } }
+    /* Coverage card */
+    .coverage-card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+    .coverage-header { display: flex; align-items: center; gap: 24px; margin-bottom: 20px; flex-wrap: wrap; }
+    .coverage-score { text-align: center; min-width: 120px; }
+    .coverage-pct { font-size: 42px; font-weight: 700; line-height: 1; }
+    .coverage-sublabel { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .coverage-detail { flex: 1; min-width: 200px; }
+    .coverage-detail-line { font-size: 14px; color: #475569; margin-bottom: 6px; }
+    .coverage-bar-track { width: 100%; height: 10px; background: #f1f5f9; border-radius: 5px; overflow: hidden; margin: 12px 0; }
+    .coverage-bar-fill { height: 100%; border-radius: 5px; }
+    .unread-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px; margin-top: 12px; }
+    .unread-file { font-size: 11px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #94a3b8; padding: 4px 8px; background: #f8fafc; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Boot sequence */
+    .boot-card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .boot-row { display: flex; align-items: center; padding: 10px 0; gap: 12px; border-bottom: 1px solid #f1f5f9; }
+    .boot-row:last-child { border-bottom: none; }
+    .boot-rank { font-size: 16px; font-weight: 700; color: #94a3b8; width: 28px; text-align: center; }
+    .boot-file { font-size: 13px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #334155; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .boot-pct-bar { width: 100px; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; }
+    .boot-pct-fill { height: 100%; background: #059669; border-radius: 3px; }
+    .boot-pct { font-size: 13px; font-weight: 600; color: #059669; width: 64px; text-align: right; white-space: nowrap; }
+    /* Token budget */
+    .token-summary-row { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+    .token-summary-card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; flex: 1; min-width: 140px; text-align: center; }
+    .token-big { font-size: 28px; font-weight: 700; color: #0f172a; }
+    .token-label { font-size: 11px; color: #64748b; text-transform: uppercase; margin-top: 2px; }
+    .token-table { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+    .token-row { display: grid; grid-template-columns: 1fr 100px 80px 80px; align-items: center; padding: 6px 0; gap: 8px; border-bottom: 1px solid #f8fafc; }
+    .token-row:last-child { border-bottom: none; }
+    .token-file { font-size: 12px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .token-calc { font-size: 11px; color: #94a3b8; text-align: right; }
+    .token-reads { font-size: 11px; color: #64748b; text-align: center; }
+    .token-total { font-size: 12px; font-weight: 600; color: #0f172a; text-align: right; }
+    /* Stale documentation */
+    .stale-card { background: white; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+    .stale-row { display: flex; align-items: center; padding: 10px 0; gap: 12px; border-bottom: 1px solid #fef3c7; }
+    .stale-row:last-child { border-bottom: none; }
+    .stale-icon { font-size: 16px; flex-shrink: 0; }
+    .stale-file { font-size: 13px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #334155; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stale-detail { font-size: 12px; color: #92400e; white-space: nowrap; }
+    @media (max-width: 640px) { .charts-row { grid-template-columns: 1fr; } .stats-row { justify-content: center; } .file-row { grid-template-columns: minmax(0, 1fr) 80px 30px; } .file-meta { display: none; } .coverage-header { flex-direction: column; text-align: center; } .token-row { grid-template-columns: 1fr 60px 60px; } .token-calc { display: none; } }
   </style>
 </head>
 <body>
@@ -361,12 +432,7 @@ function generateHtml(data, workspace) {
     </div>` : ''}
 
     <nav class="nav-toc">
-      <a href="#heatmap">Heatmap</a>
-      <a href="#patterns">Patterns</a>
-      <a href="#directories">Directories</a>
-      <a href="#trend">Trend</a>
-      <a href="#insights">Insights</a>
-      ${data.deadFiles.length > 0 ? '<a href="#dead">Dead Files</a>' : ''}
+      ${navLinks.filter(l => l.show).map(l => `<a href="${l.href}">${l.label}</a>`).join('\n      ')}
     </nav>
 
     <div class="stats-row">
@@ -374,9 +440,47 @@ function generateHtml(data, workspace) {
       <div class="stat"><div class="stat-value">${data.uniqueFiles}</div><div class="stat-label">Files Read</div></div>
       <div class="stat"><div class="stat-value">${data.uniqueSessions}</div><div class="stat-label">Sessions</div></div>
       <div class="stat"><div class="stat-value">${data.tiers.hot.length}</div><div class="stat-label">Hot Files</div></div>
+      ${cov.mdTotal > 0 ? `<div class="stat"><div class="stat-value" style="color:${covPctColor}">${cov.mdCoverage}%</div><div class="stat-label">Doc Coverage</div></div>` : ''}
       <div class="stat"><div class="stat-value">${data.deadFiles.length}</div><div class="stat-label">Dead Files</div></div>
       <div class="stat"><div class="stat-value">${data.days}d</div><div class="stat-label">Period</div></div>
     </div>
+
+    ${cov.mdTotal > 0 ? `
+    <h2 id="doc-health">📋 Documentation Health</h2>
+    <div class="coverage-card">
+      <div class="coverage-header">
+        <div class="coverage-score">
+          <div class="coverage-pct" style="color:${covPctColor}">${cov.mdCoverage}%</div>
+          <div class="coverage-sublabel">${cov.mdRead} of ${cov.mdTotal} .md files</div>
+        </div>
+        <div class="coverage-detail">
+          <div class="coverage-detail-line">Your agent reads <strong>${cov.mdRead}</strong> of <strong>${cov.mdTotal}</strong> markdown files in your workspace.</div>
+          ${cov.mdUnread.length > 0 ? `<div class="coverage-detail-line" style="color:#94a3b8">${cov.mdUnread.length} documentation file${cov.mdUnread.length !== 1 ? 's' : ''} never touched — either unnecessary or hidden from your agent.</div>` : '<div class="coverage-detail-line" style="color:#059669">All markdown files are being read. Excellent coverage!</div>'}
+          <div class="coverage-bar-track">
+            <div class="coverage-bar-fill" style="width:${cov.mdCoverage}%;background:${covPctColor}"></div>
+          </div>
+        </div>
+      </div>
+      ${cov.mdUnread.length > 0 ? `
+      <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:8px;">Unread Documentation</div>
+      <div class="unread-grid">
+        ${cov.mdUnread.slice(0, 20).map(f => `<div class="unread-file" title="${esc(f)}">${esc(f)}</div>`).join('')}
+      </div>
+      ${cov.mdUnread.length > 20 ? `<div style="font-size:12px;color:#94a3b8;margin-top:8px;">… and ${cov.mdUnread.length - 20} more</div>` : ''}` : ''}
+    </div>` : ''}
+
+    ${cov.bootFiles.length > 0 ? `
+    <h2 id="boot">🚀 Boot Sequence</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px;">Files consistently loaded in the first 5 reads of each session. These form your agent's startup sequence.</p>
+    <div class="boot-card">
+      ${cov.bootFiles.slice(0, 10).map((bf, i) => `
+      <div class="boot-row">
+        <div class="boot-rank">${i + 1}</div>
+        <div class="boot-file" title="${esc(bf.file)}">${esc(bf.file)}</div>
+        <div class="boot-pct-bar"><div class="boot-pct-fill" style="width:${bf.pct}%"></div></div>
+        <div class="boot-pct">${bf.pct}% <span style="font-weight:400;color:#94a3b8;font-size:11px">(${bf.sessions}/${bf.totalSessions})</span></div>
+      </div>`).join('')}
+    </div>` : ''}
 
     <h2 id="heatmap">File Heatmap</h2>
 
@@ -394,6 +498,53 @@ function generateHtml(data, workspace) {
       ${files.length > 15 ? `<div style="font-size:12px;color:#94a3b8;padding:8px 0;">… and ${files.length - 15} more</div>` : ''}
     </div>`
     }).join('')}
+
+    ${cov.tokenEstimates.length > 0 ? `
+    <h2 id="tokens">💰 Token Budget</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px;">Estimated token cost of file reads (rough: file size ÷ 4 bytes per token).</p>
+    <div class="token-summary-row">
+      <div class="token-summary-card">
+        <div class="token-big">${formatTokens(cov.totalTokens)}</div>
+        <div class="token-label">Est. Total Tokens</div>
+      </div>
+      <div class="token-summary-card">
+        <div class="token-big">${cov.tokenEstimates.length}</div>
+        <div class="token-label">Files Costed</div>
+      </div>
+      ${data.uniqueSessions > 0 ? `
+      <div class="token-summary-card">
+        <div class="token-big">${formatTokens(Math.round(cov.totalTokens / data.uniqueSessions))}</div>
+        <div class="token-label">Per Session</div>
+      </div>` : ''}
+    </div>
+    <div class="token-table">
+      <div class="token-row" style="font-weight:600;font-size:11px;color:#64748b;text-transform:uppercase;border-bottom:1px solid #e2e8f0;">
+        <div>File</div>
+        <div style="text-align:right">Tokens/Read</div>
+        <div style="text-align:center">Reads</div>
+        <div style="text-align:right">Total</div>
+      </div>
+      ${cov.tokenEstimates.slice(0, 15).map(te => `
+      <div class="token-row">
+        <div class="token-file" title="${esc(te.file)}">${esc(te.file)}</div>
+        <div class="token-calc">~${formatTokens(te.tokens)}</div>
+        <div class="token-reads">${te.reads}×</div>
+        <div class="token-total">${formatTokens(te.total)}</div>
+      </div>`).join('')}
+      ${cov.tokenEstimates.length > 15 ? `<div style="font-size:12px;color:#94a3b8;padding:8px 0;">… and ${cov.tokenEstimates.length - 15} more files</div>` : ''}
+    </div>` : ''}
+
+    ${cov.staleFiles.length > 0 ? `
+    <h2 id="stale">⏰ Stale Documentation</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px;">Files read frequently (10+ times) but not modified in over 2× the reporting period. May contain outdated information.</p>
+    <div class="stale-card">
+      ${cov.staleFiles.slice(0, 10).map(sf => `
+      <div class="stale-row">
+        <div class="stale-icon">⚠️</div>
+        <div class="stale-file" title="${esc(sf.file)}">${esc(sf.file)}</div>
+        <div class="stale-detail">${sf.reads} reads · modified ${formatAge(sf.modifiedAge)}</div>
+      </div>`).join('')}
+    </div>` : ''}
 
     <h2 id="patterns">Access Patterns</h2>
     <div class="charts-row">
@@ -502,6 +653,8 @@ function generateHtml(data, workspace) {
 </html>`
 }
 
+/* ── Export ─────────────────────────────────────────────────────────── */
+
 export function insights({ dir = null, workspace = null, days = 30, output = null, open = true }) {
   const ws = workspace || process.cwd()
   const heatmapDir = dir || resolve(ws, DEFAULT_DIR)
@@ -513,21 +666,27 @@ export function insights({ dir = null, workspace = null, days = 30, output = nul
   }
 
   const allFiles = getAllWorkspaceFiles(ws)
-  const data = analyze(entries, allFiles, days)
+  const data = analyze(entries, allFiles, ws, days)
   const html = generateHtml(data, ws)
 
   const outPath = output || join(heatmapDir, 'insights.html')
   writeFileSync(outPath, html)
   console.log(`\x1b[32m✓\x1b[0m Report generated: ${outPath}`)
   console.log(`  ${data.total} reads · ${data.uniqueFiles} files · ${data.uniqueSessions} sessions · ${days} day window`)
+  if (data.coverage.mdTotal > 0) {
+    console.log(`  📋 Doc coverage: ${data.coverage.mdCoverage}% (${data.coverage.mdRead}/${data.coverage.mdTotal} .md files)`)
+  }
+  if (data.coverage.totalTokens > 0) {
+    console.log(`  💰 Est. token spend: ~${formatTokens(data.coverage.totalTokens)}`)
+  }
 
   if (open) {
     try {
       const cmds = ['xdg-open', 'open', 'start']
       for (const cmd of cmds) {
         try {
-          execSync(`which ${cmd}`, { stdio: 'ignore' })
-          execSync(`${cmd} "${outPath}"`, { stdio: 'ignore' })
+          execFileSync('which', [cmd], { stdio: 'ignore' })
+          execFileSync(cmd, [outPath], { stdio: 'ignore' })
           break
         } catch {}
       }

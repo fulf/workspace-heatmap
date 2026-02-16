@@ -20,11 +20,15 @@ function parseFlags(args) {
   const positional = []
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith('--')) {
-      const key = args[i].slice(2)
-      if (args[i + 1] && !args[i + 1].startsWith('--')) {
-        flags[key] = args[++i]
+      const raw = args[i].slice(2)
+      const eqIdx = raw.indexOf('=')
+      if (eqIdx !== -1) {
+        // Handle --key=value syntax
+        flags[raw.slice(0, eqIdx)] = raw.slice(eqIdx + 1)
+      } else if (args[i + 1] && !args[i + 1].startsWith('--')) {
+        flags[raw] = args[++i]
       } else {
-        flags[key] = true
+        flags[raw] = true
       }
     } else {
       positional.push(args[i])

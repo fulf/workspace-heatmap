@@ -3,11 +3,11 @@
  * Report — generates workspace heatmap from access.jsonl
  */
 
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs'
-import { resolve, join, relative } from 'node:path'
-
-const DEFAULT_DIR = '.heatmap'
-const LOG_FILE = 'access.jsonl'
+import { resolve } from 'node:path'
+import {
+  DEFAULT_DIR, loadEntries, getAllWorkspaceFiles,
+  formatAge, formatTokens, computeCoverage,
+} from './utils.mjs'
 
 // ANSI colors
 const c = {
@@ -27,49 +27,9 @@ const c = {
   white: '\x1b[37m',
 }
 
-function loadEntries(heatmapDir, daysBack = 30) {
-  const logPath = join(heatmapDir, LOG_FILE)
-  if (!existsSync(logPath)) return []
-
-  const cutoff = Math.floor(Date.now() / 1000) - (daysBack * 86400)
-  const lines = readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean)
-
-  return lines
-    .map(line => { try { return JSON.parse(line) } catch { return null } })
-    .filter(e => e && e.ts >= cutoff)
-}
-
-function getAllWorkspaceFiles(workspace, ignorePatterns = ['.git', 'node_modules', '.heatmap']) {
-  const files = []
-  function walk(dir, prefix = '') {
-    let entries
-    try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
-    for (const entry of entries) {
-      if (ignorePatterns.includes(entry.name)) continue
-      const relPath = prefix ? `${prefix}/${entry.name}` : entry.name
-      if (entry.isDirectory()) {
-        walk(join(dir, entry.name), relPath)
-      } else {
-        files.push(relPath)
-      }
-    }
-  }
-  walk(workspace)
-  return files
-}
-
 function makeBar(count, maxCount, width = 20) {
   const filled = Math.round((count / maxCount) * width)
   return '█'.repeat(filled) + '░'.repeat(width - filled)
-}
-
-function formatAge(seconds) {
-  const hours = Math.floor(seconds / 3600)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-  const weeks = Math.floor(days / 7)
-  return `${weeks}w ago`
 }
 
 export function report({ dir = null, workspace = null, days = 30, json = false, all = false }) {
@@ -101,8 +61,8 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
     }
   }
 
-  // Get all workspace files to find dead ones
-  const allFiles = all ? getAllWorkspaceFiles(ws) : []
+  // Always get workspace files (needed for doc coverage)
+  const allFiles = getAllWorkspaceFiles(ws)
   const deadFiles = allFiles.filter(f => !fileCounts[f])
 
   // Sort by count descending
@@ -117,6 +77,9 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
   const warm = sorted.filter(([, c]) => c >= weeklyThreshold && c < dailyThreshold)
   const cold = sorted.filter(([, c]) => c > 0 && c < weeklyThreshold)
 
+  // Compute documentation coverage
+  const coverage = computeCoverage(entries, allFiles, ws, days)
+
   if (json) {
     console.log(JSON.stringify({
       period: days,
@@ -129,6 +92,7 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
         tier: count >= dailyThreshold ? 'hot' : count >= weeklyThreshold ? 'warm' : 'cold',
       })),
       dead: deadFiles.slice(0, 50),
+      coverage,
     }))
     return
   }
@@ -168,6 +132,50 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
     }
   }
 
+  // Documentation Health
+  if (coverage.mdTotal > 0) {
+    console.log()
+    console.log(`${c.bold}📋 Documentation Health${c.reset}`)
+    const covColor = coverage.mdCoverage >= 70 ? c.green : coverage.mdCoverage >= 40 ? c.yellow : c.red
+    console.log(`  Coverage: ${covColor}${coverage.mdRead} of ${coverage.mdTotal} .md files read (${coverage.mdCoverage}%)${c.reset}`)
+    if (coverage.mdUnread.length > 0) {
+      const shown = coverage.mdUnread.slice(0, 8)
+      console.log(`  ${c.dim}Unread:  ${shown.join(', ')}${coverage.mdUnread.length > 8 ? ` … +${coverage.mdUnread.length - 8} more` : ''}${c.reset}`)
+    }
+  }
+
+  // Boot Sequence
+  if (coverage.bootFiles.length > 0) {
+    console.log()
+    console.log(`${c.bold}🚀 Boot Sequence${c.reset} ${c.dim}(first 5 reads, >80% of sessions)${c.reset}`)
+    for (const bf of coverage.bootFiles.slice(0, 8)) {
+      const name = bf.file.length > 35 ? '...' + bf.file.slice(-32) : bf.file
+      console.log(`  ${c.green}${name.padEnd(38)}${c.reset} ${c.bold}${String(bf.pct).padStart(3)}%${c.reset} ${c.dim}(${bf.sessions}/${bf.totalSessions} sessions)${c.reset}`)
+    }
+  }
+
+  // Stale Documentation
+  if (coverage.staleFiles.length > 0) {
+    console.log()
+    console.log(`${c.bold}⏰ Stale Documentation${c.reset} ${c.dim}(read often, not updated)${c.reset}`)
+    for (const sf of coverage.staleFiles.slice(0, 5)) {
+      const name = sf.file.length > 35 ? '...' + sf.file.slice(-32) : sf.file
+      console.log(`  ${c.yellow}${name.padEnd(38)}${c.reset} ${sf.reads} reads · last modified ${formatAge(sf.modifiedAge)}`)
+    }
+  }
+
+  // Token Budget
+  if (coverage.tokenEstimates.length > 0) {
+    console.log()
+    console.log(`${c.bold}💰 Token Budget${c.reset} ${c.dim}(estimated)${c.reset}`)
+    for (const te of coverage.tokenEstimates.slice(0, 5)) {
+      const name = te.file.length > 35 ? '...' + te.file.slice(-32) : te.file
+      console.log(`  ${c.white}${name.padEnd(38)}${c.reset} ${c.dim}~${formatTokens(te.tokens)} tok × ${te.reads}${c.reset} = ${c.bold}${formatTokens(te.total)} tokens${c.reset}`)
+    }
+    console.log(`  ${c.dim}${'─'.repeat(58)}${c.reset}`)
+    console.log(`  ${'Total:'.padEnd(38)} ${c.bold}~${formatTokens(coverage.totalTokens)} tokens${c.reset} on file reads`)
+  }
+
   // Recommendations
   console.log()
   console.log(`${c.bold}💡 Insights${c.reset}`)
@@ -182,8 +190,16 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
     console.log(`  ${c.cyan}→${c.reset} ${cold.length} files rarely read — consider moving to skills or archiving`)
   }
 
-  if (all && deadFiles.length > 5) {
+  if (deadFiles.length > 5) {
     console.log(`  ${c.cyan}→${c.reset} ${deadFiles.length} files never read — dead weight in your workspace`)
+  }
+
+  if (coverage.mdTotal > 0 && coverage.mdCoverage < 50) {
+    console.log(`  ${c.cyan}→${c.reset} Only ${coverage.mdCoverage}% of .md files read — your agent may be missing documentation`)
+  }
+
+  if (coverage.staleFiles.length > 0) {
+    console.log(`  ${c.cyan}→${c.reset} ${coverage.staleFiles.length} files read frequently but not updated — check for stale docs`)
   }
 
   const uniqueSessions = new Set(entries.filter(e => e.s).map(e => e.s)).size

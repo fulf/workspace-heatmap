@@ -10,6 +10,18 @@ import { execSync } from 'node:child_process'
 
 const DEFAULT_DIR = '.heatmap'
 
+/**
+ * Reject paths containing characters that are dangerous in shell interpolation.
+ * Throws if the path contains ", `, $, or \.
+ */
+function validatePath(p) {
+  if (/["`$\\]/.test(p)) {
+    throw new Error(
+      `Path contains shell-unsafe characters (", \`, $, \\) and cannot be used in hook commands: ${p}`
+    )
+  }
+}
+
 function findPackageBin() {
   // Try to find the installed tracker path
   try {
@@ -61,9 +73,14 @@ function initClaudeCode(workspace, trackerPath) {
     return { installed: false, reason: 'already installed' }
   }
 
+  // Validate paths before interpolating into shell command
+  const heatmapDir = join(workspace, DEFAULT_DIR)
+  if (trackerPath) validatePath(trackerPath)
+  validatePath(heatmapDir)
+
   const cmd = trackerPath
-    ? `node "${trackerPath}" "$FILE_PATH" --dir "${join(workspace, DEFAULT_DIR)}"`
-    : `npx -y workspace-heatmap track "$FILE_PATH" --dir "${join(workspace, DEFAULT_DIR)}"`
+    ? `node "${trackerPath}" "$FILE_PATH" --dir "${heatmapDir}"`
+    : `npx -y workspace-heatmap track "$FILE_PATH" --dir "${heatmapDir}"`
 
   settings.hooks.postToolExecution.push({
     matcher: 'Read',
