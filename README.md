@@ -24,6 +24,16 @@ whm init
 
 # After a few sessions, check the heatmap
 whm report
+
+# Generate a beautiful HTML report
+whm insights
+```
+
+Or use directly without installing:
+
+```bash
+npx workspace-heatmap init
+npx whm report
 ```
 
 ## How It Works
@@ -38,12 +48,21 @@ whm report
 Already have session transcripts? Mine them:
 
 ```bash
-# OpenClaw transcripts
+# Auto-detects format (OpenClaw or Claude Code)
 whm mine ~/.openclaw/agents/main/sessions/
+whm mine ~/.claude/projects/*/
 
 # Multiple directories
-whm mine ./sessions/ /other/sessions/ --format openclaw
+whm mine ./sessions/ /other/sessions/
+
+# Include Write/Edit tracking too
+whm mine ./sessions/ --include-writes
+
+# Re-mine everything (ignores dedup cache)
+whm mine ./sessions/ --force
 ```
+
+The miner automatically deduplicates — running it twice on the same transcripts won't double-count.
 
 ## Commands
 
@@ -60,7 +79,7 @@ whm mine ./sessions/ /other/sessions/ --format openclaw
 
 ```bash
 whm report              # Last 30 days (terminal)
-whm report --days 7     # Last 7 days  
+whm report --days 7     # Last 7 days
 whm report --all        # Include dead (never-read) files
 whm report --json       # JSON output for scripting
 ```
@@ -83,6 +102,17 @@ The report includes:
 - 🕐 Access patterns (time of day, day of week)
 - 📁 Directory heatmap
 - 💡 Actionable insights and recommendations
+
+### Mining Options
+
+```bash
+whm mine <dir>                    # Auto-detect format, deduplicate
+whm mine <dir> --format openclaw  # Force OpenClaw format
+whm mine <dir> --format claude-code  # Force Claude Code format
+whm mine <dir> --include-writes   # Track Write/Edit too
+whm mine <dir> --force            # Re-mine everything
+whm mine <dir> --dry-run          # Preview without writing
+```
 
 ## Example Output
 
@@ -116,13 +146,23 @@ The report includes:
   → Tracked across 34 sessions
 ```
 
+## Supported Platforms
+
+| Platform | Live Tracking | Transcript Mining |
+|----------|:------------:|:-----------------:|
+| Claude Code | ✅ (hook) | ✅ |
+| OpenClaw | ✅ (AGENTS.md) | ✅ |
+| Generic | ✅ (manual `whm track`) | — |
+
+Format auto-detection works by examining transcript content — no configuration needed.
+
 ## Data Format
 
 Reads are stored in `.heatmap/access.jsonl` (one JSON line per read):
 
 ```json
 {"f":"MEMORY.md","ts":1739661600,"s":"abc123"}
-{"f":"memory/2026-02-15.md","ts":1739661605,"tool":"Read","s":"abc123"}
+{"f":"src/app.ts","ts":1739661605,"tool":"Edit","op":"w","s":"abc123"}
 ```
 
 Fields:
@@ -130,21 +170,25 @@ Fields:
 - `ts` — Unix timestamp
 - `s` — session ID (optional)
 - `tool` — tool name if not "Read" (optional)
+- `op` — "w" for writes (optional, reads omitted)
 - `src` — "mined" if retroactively extracted (optional)
 
 ## Programmatic API
 
 ```javascript
-import { track, report, mine, init } from 'workspace-heatmap'
+import { track, report, mine, init, insights } from 'workspace-heatmap'
 
 // Track a read
 track({ file: 'MEMORY.md', session: 'abc123' })
 
-// Generate report
+// Generate terminal report
 report({ days: 7, all: true })
 
+// Generate HTML report
+insights({ days: 14, output: './report.html' })
+
 // Mine transcripts
-mine({ transcriptDirs: ['./sessions/'], format: 'openclaw' })
+mine({ transcriptDirs: ['./sessions/'], format: 'auto' })
 ```
 
 ## FAQ
@@ -158,9 +202,12 @@ With Claude Code hooks: no, it's invisible. With OpenClaw: the agent runs the tr
 **How big does the log get?**
 ~100 bytes per read. At 100 reads/day, that's ~3KB/day or ~1MB/year. Negligible.
 
+**Will mining the same transcripts twice duplicate data?**
+No. Since v0.3.0, the miner tracks which files have been processed (via content hash) and skips them. Use `--force` to override.
+
 **Can I track writes too?**
-Not yet, but the architecture supports it. PRs welcome.
+Yes! Use `--include-writes` when mining, or log manually: `whm track <file> --tool Write`.
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE)

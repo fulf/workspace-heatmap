@@ -105,11 +105,18 @@ async function main() {
       const { mine } = await import('../src/mine.mjs')
       const dirs = positional.length > 0 ? positional : []
       if (dirs.length === 0) {
-        console.error('Usage: whm mine <transcript-dir> [<transcript-dir>...] [--format openclaw|claude-code]')
+        console.error('Usage: whm mine <transcript-dir> [<transcript-dir>...] [--format auto|openclaw|claude-code]')
+        console.error('')
+        console.error('Options:')
+        console.error('  --format <F>       Transcript format (default: auto-detect)')
+        console.error('  --include-writes   Also track Write/Edit tool calls')
+        console.error('  --force            Re-mine already-processed transcripts')
+        console.error('  --dry-run          Preview without writing')
         console.error('')
         console.error('Example:')
         console.error('  whm mine ~/.openclaw/agents/main/sessions/')
-        console.error('  whm mine ./sessions/ --format claude-code --dry-run')
+        console.error('  whm mine ~/.claude/projects/*/')
+        console.error('  whm mine ./sessions/ --include-writes --force')
         process.exit(1)
       }
 
@@ -117,12 +124,18 @@ async function main() {
         transcriptDirs: dirs.map(d => resolve(d)),
         workspace: flags.workspace || process.cwd(),
         dir: flags.dir || null,
-        format: flags.format || 'openclaw',
+        format: flags.format || 'auto',
         dryRun: flags['dry-run'] || false,
+        includeWrites: flags['include-writes'] || false,
+        force: flags.force || false,
       })
 
       if (!flags['dry-run']) {
-        console.log(`\x1b[32m✓\x1b[0m Mined ${result.totalEntries} file reads from ${result.totalFiles} transcripts`)
+        const parts = [`\x1b[32m✓\x1b[0m Mined ${result.totalEntries} file accesses from ${result.totalFiles} transcripts`]
+        if (result.skippedFiles > 0) {
+          parts.push(`(${result.skippedFiles} already mined, skipped)`)
+        }
+        console.log(parts.join(' '))
       }
       break
     }

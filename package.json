@@ -1,6 +1,6 @@
 {
   "name": "workspace-heatmap",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Track and visualize which files your AI agent actually reads. Heatmap your workspace.",
   "type": "module",
   "bin": {
@@ -14,7 +14,9 @@
   "files": [
     "bin/",
     "src/",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "ai",
@@ -24,10 +26,18 @@
     "claude-code",
     "openclaw",
     "observability",
-    "file-tracking"
+    "file-tracking",
+    "file-access",
+    "analytics",
+    "insights",
+    "developer-tools"
   ],
   "author": "Sorin Guga <sorin@guga.ro>",
   "license": "MIT",
+  "homepage": "https://github.com/fulf/workspace-heatmap#readme",
+  "bugs": {
+    "url": "https://github.com/fulf/workspace-heatmap/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/fulf/workspace-heatmap.git"
