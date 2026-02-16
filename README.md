@@ -51,18 +51,38 @@ whm mine ./sessions/ /other/sessions/ --format openclaw
 |---------|-------------|
 | `whm init` | Set up tracking (detects Claude Code / OpenClaw automatically) |
 | `whm track <file>` | Log a single file read (used by hooks) |
-| `whm report` | Show the workspace heatmap |
+| `whm report` | Show the workspace heatmap (terminal) |
+| `whm insights` | Generate a beautiful HTML report |
 | `whm mine <dir>` | Extract reads from session transcripts |
 | `whm status` | Show tracking status and stats |
 
 ### Report Options
 
 ```bash
-whm report              # Last 30 days
+whm report              # Last 30 days (terminal)
 whm report --days 7     # Last 7 days  
 whm report --all        # Include dead (never-read) files
 whm report --json       # JSON output for scripting
 ```
+
+### Insights (HTML Report)
+
+Generate a rich, visual HTML report inspired by Claude Code's `/insights`:
+
+```bash
+whm insights                        # Open in browser
+whm insights --days 14              # Last 14 days
+whm insights --output report.html   # Custom output path
+whm insights --no-open              # Don't auto-open
+```
+
+The report includes:
+- 📊 At-a-glance summary with workspace health assessment
+- 🔴🟡🔵 File heatmap with tiers (hot/warm/cold/dead)
+- 📈 Daily trend sparkline
+- 🕐 Access patterns (time of day, day of week)
+- 📁 Directory heatmap
+- 💡 Actionable insights and recommendations
 
 ## Example Output
 

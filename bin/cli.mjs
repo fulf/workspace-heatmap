@@ -127,6 +127,18 @@ async function main() {
       break
     }
 
+    case 'insights': {
+      const { insights } = await import('../src/insights.mjs')
+      const outPath = insights({
+        dir: flags.dir || null,
+        workspace: flags.workspace || process.cwd(),
+        days: parseInt(flags.days || '30', 10),
+        output: flags.output || flags.o || null,
+        open: !flags['no-open'],
+      })
+      break
+    }
+
     case 'status': {
       const { existsSync, readFileSync, statSync } = await import('node:fs')
       const { join } = await import('node:path')
@@ -172,7 +184,8 @@ async function main() {
 \x1b[1mUsage:\x1b[0m
   whm init                         Set up tracking in current workspace
   whm track <file>                 Log a file read (called by hooks)
-  whm report [--days N] [--all]    Show the heatmap
+  whm report [--days N] [--all]    Show the heatmap (terminal)
+  whm insights [--days N]          Generate a beautiful HTML report
   whm mine <dir> [--format F]      Extract reads from session transcripts
   whm status                       Show tracking status
 
@@ -182,12 +195,15 @@ async function main() {
   --days <N>            Report period in days (default: 30)
   --all                 Include dead files in report
   --json                JSON output (report)
+  --output <path>       Output file path (insights)
+  --no-open             Don't auto-open the HTML file (insights)
   --format <F>          Transcript format: openclaw, claude-code (mine)
   --dry-run             Preview without writing (mine)
 
 \x1b[1mExamples:\x1b[0m
   cd ~/my-agent && whm init
   whm report --days 7 --all
+  whm insights --days 14
   whm mine ~/.openclaw/agents/main/sessions/
   whm report --json | jq '.files[:5]'
 `)
