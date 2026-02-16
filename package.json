@@ -4,8 +4,8 @@
   "description": "Track and visualize which files your AI agent actually reads. Heatmap your workspace.",
   "type": "module",
   "bin": {
-    "workspace-heatmap": "./bin/cli.mjs",
-    "whm": "./bin/cli.mjs"
+    "workspace-heatmap": "bin/cli.mjs",
+    "whm": "bin/cli.mjs"
   },
   "exports": {
     ".": "./src/index.mjs",
@@ -30,7 +30,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/The-Guga-Pantheon/workspace-heatmap.git"
+    "url": "git+https://github.com/fulf/workspace-heatmap.git"
   },
   "engines": {
     "node": ">=18"
