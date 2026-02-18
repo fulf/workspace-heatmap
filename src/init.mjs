@@ -42,7 +42,7 @@ function findPackageBin() {
 
 function detectEnvironment(workspace) {
   const indicators = {
-    claudeCode: existsSync(join(workspace, '.claude')),
+    claudeCode: existsSync(join(workspace, '.claude')) || existsSync(join(workspace, 'CLAUDE.md')),
     openClaw: existsSync(join(workspace, 'AGENTS.md')) && existsSync(join(workspace, 'SOUL.md')),
     git: existsSync(join(workspace, '.git')),
   }

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.1] — 2026-02-18
+
+### Fixed
+- **Claude Code detection missed `CLAUDE.md`** — projects with `CLAUDE.md` (newer Claude Code config) but no `.claude/` directory were detected as "generic" instead of Claude Code. Now checks for both `.claude/` and `CLAUDE.md`.
+
 ## [0.4.0] — 2026-02-16
 
 ### Added
