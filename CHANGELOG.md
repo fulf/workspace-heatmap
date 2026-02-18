@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.3] — 2026-02-18
+
+### Fixed
+- **Files outside workspace no longer tracked** — both the live hook tracker and the miner now skip any file paths that resolve outside the workspace directory. Fixes `absolute paths outside the workspace` and other absolute paths appearing in reports.
+
 ## [0.6.2] — 2026-02-18
 
 ### Fixed

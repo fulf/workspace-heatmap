@@ -114,8 +114,10 @@ function extractFromClaudeCode(filePath, workspace, { includeWrites = false } = 
 function normalizeFile(file, workspace) {
   if (isAbsolute(file)) {
     const r = relative(workspace, file)
-    if (!r.startsWith('..')) return r
+    if (r.startsWith('..')) return null // outside workspace, skip
+    return r
   }
+  if (file.startsWith('..')) return null // relative path outside workspace, skip
   return file
 }
 
@@ -213,6 +215,7 @@ export function mine({
 
       for (const entry of entries) {
         const normalized = normalizeFile(entry.file, ws)
+        if (!normalized) continue // outside workspace, skip
         const logEntry = {
           f: normalized,
           ts: entry.ts || Math.floor(Date.now() / 1000),

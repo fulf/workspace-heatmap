@@ -23,12 +23,15 @@ export function track({ file, tool = 'Read', session = null, dir = null, workspa
 
   const logPath = join(heatmapDir, LOG_FILE)
 
-  // Normalize file path to relative if possible
+  // Normalize file path to relative — skip files outside workspace
   const ws = workspace || process.cwd()
   let relFile = file
   if (isAbsolute(file)) {
     const r = relative(ws, file)
-    if (!r.startsWith('..')) relFile = r
+    if (r.startsWith('..')) return // outside workspace, skip
+    relFile = r
+  } else if (file.startsWith('..')) {
+    return // relative path pointing outside workspace, skip
   }
 
   const entry = {
