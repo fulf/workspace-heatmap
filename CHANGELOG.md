@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.2] — 2026-02-18
+
+### Fixed
+- **Claude Code hooks use new format** — Claude Code now requires `PostToolUse` with `matcher.tools` array and `hooks` array (was `postToolExecution` with flat `matcher`/`command`). Old format caused settings validation error.
+- Auto-migrates old `postToolExecution` hooks on re-init
+
 ## [0.4.1] — 2026-02-18
 
 ### Fixed

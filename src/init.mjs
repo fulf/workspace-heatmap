@@ -61,16 +61,24 @@ function initClaudeCode(workspace, trackerPath) {
     try { settings = JSON.parse(readFileSync(settingsFile, 'utf-8')) } catch { settings = {} }
   }
 
-  // Add postToolExecution hook for Read tool
+  // Add PostToolUse hook for Read tool (new format since Claude Code 2025+)
   if (!settings.hooks) settings.hooks = {}
-  if (!settings.hooks.postToolExecution) settings.hooks.postToolExecution = []
+  if (!settings.hooks.PostToolUse) settings.hooks.PostToolUse = []
 
-  // Check if already installed
-  const existing = settings.hooks.postToolExecution.find(h =>
+  // Check if already installed (check both old and new format)
+  const existingNew = settings.hooks.PostToolUse?.find(h =>
+    h.hooks?.some(hk => hk.command?.includes('workspace-heatmap') || hk.command?.includes('tracker.mjs'))
+  )
+  const existingOld = settings.hooks.postToolExecution?.find(h =>
     h.command?.includes('workspace-heatmap') || h.command?.includes('tracker.mjs')
   )
-  if (existing) {
+  if (existingNew || existingOld) {
     return { installed: false, reason: 'already installed' }
+  }
+
+  // Migrate old format if present
+  if (settings.hooks.postToolExecution) {
+    delete settings.hooks.postToolExecution
   }
 
   // Validate paths before interpolating into shell command
@@ -82,9 +90,9 @@ function initClaudeCode(workspace, trackerPath) {
     ? `node "${trackerPath}" "$FILE_PATH" --dir "${heatmapDir}"`
     : `npx -y workspace-heatmap track "$FILE_PATH" --dir "${heatmapDir}"`
 
-  settings.hooks.postToolExecution.push({
-    matcher: 'Read',
-    command: cmd,
+  settings.hooks.PostToolUse.push({
+    matcher: { tools: ['Read'] },
+    hooks: [{ type: 'command', command: cmd }],
   })
 
   writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + '\n')
