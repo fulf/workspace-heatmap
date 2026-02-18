@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.6] — 2026-02-18
+
+### Added
+- **Expandable "… and N more" links** — in both the Documentation Health unread grid and the Unread Documentation section, clicking "… and N more" now expands to show all files instead of being a static label.
+
 ## [0.6.5] — 2026-02-18
 
 ### Fixed

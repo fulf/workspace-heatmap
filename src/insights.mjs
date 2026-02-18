@@ -575,10 +575,10 @@ function generateHtml(data, workspace, allFiles) {
       </div>
       ${cov.mdUnread.length > 0 ? `
       <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:8px;">Unread Documentation</div>
-      <div class="unread-grid">
-        ${cov.mdUnread.slice(0, 20).map(f => `<div class="unread-file" title="${esc(f)}">${esc(f)}</div>`).join('')}
+      <div class="unread-grid" id="unread-grid-health">
+        ${cov.mdUnread.map((f, i) => `<div class="unread-file${i >= 20 ? ' unread-overflow' : ''}" title="${esc(f)}"${i >= 20 ? ' style="display:none"' : ''}>${esc(f)}</div>`).join('')}
       </div>
-      ${cov.mdUnread.length > 20 ? `<div style="font-size:12px;color:#94a3b8;margin-top:8px;">… and ${cov.mdUnread.length - 20} more</div>` : ''}` : ''}
+      ${cov.mdUnread.length > 20 ? `<div class="unread-expand" onclick="expandUnread(this, 'unread-grid-health')" style="font-size:12px;color:#2563eb;margin-top:8px;cursor:pointer;">… and ${cov.mdUnread.length - 20} more ▼</div>` : ''}` : ''}
     </div>` : ''}
 
     ${cov.bootFiles.length > 0 ? `
@@ -747,9 +747,9 @@ function generateHtml(data, workspace, allFiles) {
     ${data.deadFiles.length > 0 ? `
     <h2 id="dead">Unread Documentation</h2>
     <p style="font-size:13px;color:#64748b;margin-bottom:12px;">These ${data.deadFiles.length} .md files exist in your workspace but have never been read by your agent.</p>
-    <div class="dead-section">
-      ${data.deadFiles.slice(0, 30).map(f => `<div class="dead-file">${esc(f)}</div>`).join('')}
-      ${data.deadFiles.length > 30 ? `<div style="font-size:12px;color:#94a3b8;padding-top:8px;">… and ${data.deadFiles.length - 30} more</div>` : ''}
+    <div class="dead-section" id="dead-section-list">
+      ${data.deadFiles.map((f, i) => `<div class="dead-file${i >= 30 ? ' dead-overflow' : ''}"${i >= 30 ? ' style="display:none"' : ''}>${esc(f)}</div>`).join('')}
+      ${data.deadFiles.length > 30 ? `<div class="unread-expand" onclick="expandUnread(this, 'dead-section-list')" style="font-size:12px;color:#2563eb;padding-top:8px;cursor:pointer;">… and ${data.deadFiles.length - 30} more ▼</div>` : ''}
     </div>` : ''}
 
     ${data.total > 0 && data.tiers.hot.length > 0 ? `
@@ -812,6 +812,13 @@ function generateHtml(data, workspace, allFiles) {
       document.querySelectorAll('.dir-children').forEach(function(dc) {
         sortContainer(dc, '.tree-file-row');
       });
+    }
+
+    function expandUnread(trigger, containerId) {
+      var container = document.getElementById(containerId);
+      var hidden = container.querySelectorAll('.unread-overflow, .dead-overflow');
+      hidden.forEach(function(el) { el.style.display = ''; });
+      trigger.style.display = 'none';
     }
 
     function toggleShowAll() {
