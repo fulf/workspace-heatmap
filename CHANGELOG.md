@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.5] — 2026-02-18
+
+### Changed
+- **Removed Bash from default hooks** — Bash tracking fired on every shell command, added latency, and regex extraction of file paths from commands was too fragile. Default hooks now track `Read` and `Grep` only. Bash parsing still works in the tracker if invoked manually.
+
 ## [0.5.4] — 2026-02-18
 
 ### Added

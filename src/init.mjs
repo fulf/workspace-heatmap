@@ -139,8 +139,8 @@ function initClaudeCode(workspace, trackerPath) {
     ? `node "${trackerPath}" --stdin --dir "${heatmapDir}"`
     : `npx -y workspace-heatmap track --stdin --dir "${heatmapDir}"`
 
-  // Track Read, Grep, and Bash (file-reading commands)
-  const trackedTools = ['Read', 'Grep', 'Bash']
+  // Track Read and Grep (file-reading tools)
+  const trackedTools = ['Read', 'Grep']
   for (const tool of trackedTools) {
     settings.hooks.PostToolUse.push({
       matcher: tool,
