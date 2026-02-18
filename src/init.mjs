@@ -87,8 +87,8 @@ function initClaudeCode(workspace, trackerPath) {
   validatePath(heatmapDir)
 
   const cmd = trackerPath
-    ? `node "${trackerPath}" "$FILE_PATH" --dir "${heatmapDir}"`
-    : `npx -y workspace-heatmap track "$FILE_PATH" --dir "${heatmapDir}"`
+    ? `node "${trackerPath}" --stdin --dir "${heatmapDir}"`
+    : `npx -y workspace-heatmap track --stdin --dir "${heatmapDir}"`
 
   settings.hooks.PostToolUse.push({
     matcher: 'Read',

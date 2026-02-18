@@ -41,26 +41,71 @@ export function track({ file, tool = 'Read', session = null, dir = null, workspa
   appendFileSync(logPath, JSON.stringify(entry) + '\n')
 }
 
+/**
+ * Read all of stdin as a string. Returns '' if stdin is a TTY or empty.
+ */
+function readStdin() {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) return resolve('')
+    let data = ''
+    process.stdin.setEncoding('utf-8')
+    process.stdin.on('data', chunk => { data += chunk })
+    process.stdin.on('end', () => resolve(data))
+    // Timeout after 1s in case stdin hangs
+    setTimeout(() => resolve(data), 1000)
+  })
+}
+
+/**
+ * Parse Claude Code hook stdin JSON and extract file path + metadata.
+ * Returns { file, tool, session } or null if not applicable.
+ */
+function parseHookStdin(json) {
+  try {
+    const data = JSON.parse(json)
+    const file = data.tool_input?.file_path || data.tool_input?.path
+    if (!file) return null
+    const tool = data.tool_name || 'Read'
+    const session = data.session_id || null
+    return { file, tool, session }
+  } catch {
+    return null
+  }
+}
+
 // CLI mode
 if (process.argv[1] && (process.argv[1].endsWith('tracker.mjs') || process.argv[1].endsWith('tracker.js'))) {
   const args = process.argv.slice(2)
-  if (args.length === 0) {
-    process.exit(0) // Silent no-op if no file given
-  }
 
   let file = null
   let dir = null
   let session = null
   let tool = 'Read'
+  let useStdin = false
 
   for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--stdin') { useStdin = true; continue }
     if (args[i] === '--dir' && args[i + 1]) { dir = args[++i]; continue }
     if (args[i] === '--session' && args[i + 1]) { session = args[++i]; continue }
     if (args[i] === '--tool' && args[i + 1]) { tool = args[++i]; continue }
     if (!file) file = args[i]
   }
 
-  if (file) {
+  if (useStdin || (!file && !process.stdin.isTTY)) {
+    // Read from stdin (Claude Code hook mode)
+    readStdin().then(input => {
+      if (!input) process.exit(0)
+      const parsed = parseHookStdin(input)
+      if (parsed) {
+        track({
+          file: parsed.file,
+          tool: parsed.tool,
+          session: session || parsed.session,
+          dir,
+        })
+      }
+    })
+  } else if (file) {
     track({ file, tool, session, dir })
   }
 }

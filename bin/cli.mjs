@@ -78,6 +78,34 @@ async function main() {
     }
 
     case 'track': {
+      // --stdin mode: read Claude Code hook JSON from stdin
+      if (flags.stdin || (!positional[0] && !process.stdin.isTTY)) {
+        let data = ''
+        process.stdin.setEncoding('utf-8')
+        await new Promise((res) => {
+          process.stdin.on('data', chunk => { data += chunk })
+          process.stdin.on('end', res)
+          setTimeout(res, 1000)
+        })
+        if (data) {
+          try {
+            const parsed = JSON.parse(data)
+            const file = parsed.tool_input?.file_path || parsed.tool_input?.path
+            if (file) {
+              const { track } = await import('../src/tracker.mjs')
+              track({
+                file,
+                tool: parsed.tool_name || 'Read',
+                session: flags.session || parsed.session_id || null,
+                dir: flags.dir || null,
+                workspace: flags.workspace || process.cwd(),
+              })
+            }
+          } catch {}
+        }
+        break
+      }
+
       const { track } = await import('../src/tracker.mjs')
       const file = positional[0]
       if (!file) {

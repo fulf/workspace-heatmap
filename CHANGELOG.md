@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0] — 2026-02-18
+
+### Fixed
+- **Claude Code hook stdin support** — Claude Code hooks receive context via stdin JSON, not `$FILE_PATH` env var. Hook now reads stdin and extracts `tool_input.file_path`. Also captures `session_id` and `tool_name` automatically.
+
+### Added
+- `--stdin` flag for `whm track` — reads Claude Code hook JSON from stdin instead of positional file arg
+- Auto-detects piped stdin (no `--stdin` flag needed when stdin is not a TTY)
+- Session ID extracted from stdin JSON (`session_id` field)
+
+### Changed
+- `whm init` now generates stdin-based hook commands for Claude Code
+
 ## [0.4.4] — 2026-02-18
 
 ### Added
