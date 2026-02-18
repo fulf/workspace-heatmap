@@ -191,7 +191,7 @@ function buildGlance(data) {
 
 /* ── HTML Generation ───────────────────────────────────────────────── */
 
-function generateHtml(data, workspace) {
+function generateHtml(data, workspace, allFiles) {
   const wsName = basename(workspace)
   const glance = buildGlance(data)
 
@@ -234,7 +234,19 @@ function generateHtml(data, workspace) {
       fileDataMap[f.file] = f
     }
   }
-  const dirTree = buildDirectoryTree(data.sorted, fileDataMap)
+  // Include all workspace files (unread ones get count=0)
+  const readFiles = new Set(Object.keys(fileDataMap))
+  const allFileSorted = [
+    ...data.sorted,
+    ...allFiles.filter(f => !readFiles.has(f)).map(f => [f, 0]),
+  ]
+  const allFileDataMap = { ...fileDataMap }
+  for (const f of allFiles) {
+    if (!allFileDataMap[f]) {
+      allFileDataMap[f] = { file: f, count: 0, tier: 'dead', lastAccess: null, sessions: 0, pct: 0 }
+    }
+  }
+  const dirTree = buildDirectoryTree(allFileSorted, allFileDataMap)
 
   function getDirHeatColor(node) {
     let maxFileCount = 0
@@ -251,16 +263,17 @@ function generateHtml(data, workspace) {
 
   function renderTreeFileRow(f) {
     const cnt = f.count || 0
-    const tierColor = cnt >= dailyThreshold ? '#dc2626' : cnt >= weeklyThreshold ? '#d97706' : '#2563eb'
+    const isUnread = cnt === 0
+    const tierColor = isUnread ? '#94a3b8' : cnt >= dailyThreshold ? '#dc2626' : cnt >= weeklyThreshold ? '#d97706' : '#2563eb'
     const age = f.lastAccess ? formatAge(data.now - f.lastAccess) : '—'
     const barPct = data.maxCount > 0 ? Math.round(cnt / data.maxCount * 100) : 0
     const fileName = f.file.includes('/') ? f.file.split('/').pop() : f.file
-    return `<div class="tree-file-row" data-reads="${cnt}" data-name="${esc(fileName)}">
+    return `<div class="tree-file-row${isUnread ? ' tree-file-unread' : ''}" data-reads="${cnt}" data-name="${esc(fileName)}"${isUnread ? ' data-unread="true"' : ''} ${isUnread ? 'style="display:none"' : ''}>
         <div class="tree-file-dot" style="background:${tierColor}"></div>
         <div class="tree-file-name" title="${esc(f.file)}">${esc(fileName)}</div>
         <div class="bar-track"><div class="bar-fill" style="width:${barPct}%;background:${tierColor}"></div></div>
         <div class="tree-file-count">${cnt}</div>
-        <div class="tree-file-meta">${age} · ${f.sessions || 0} sess</div>
+        <div class="tree-file-meta">${isUnread ? 'never read' : age + ' · ' + (f.sessions || 0) + ' sess'}</div>
       </div>`
   }
 
@@ -269,8 +282,9 @@ function generateHtml(data, workspace) {
     const children = Object.values(node.children).sort((a, b) => b.totalReads - a.totalReads)
     const files = [...node.files].sort((a, b) => (b.count || 0) - (a.count || 0))
     const hasContent = children.length > 0 || files.length > 0
+    const isUnreadDir = node.totalReads === 0
 
-    let html = `<div class="dir-node" data-reads="${node.totalReads}" data-name="${esc(node.name)}">`
+    let html = `<div class="dir-node${isUnreadDir ? ' dir-node-unread' : ''}" data-reads="${node.totalReads}" data-name="${esc(node.name)}"${isUnreadDir ? ' data-unread="true" style="display:none"' : ''}>`
     html += `<div class="dir-header${hasContent ? ' dir-clickable' : ''}"${hasContent ? ' onclick="toggleDir(this)"' : ''}>`
     html += `<span class="dir-arrow">${hasContent ? '▶' : '·'}</span>`
     html += `<span class="dir-icon">📁</span>`
@@ -298,11 +312,13 @@ function generateHtml(data, workspace) {
     ...topDirs.map(d => ({ type: 'dir', reads: d.totalReads, data: d })),
   ].sort((a, b) => b.reads - a.reads)
 
-  const treeHtml = `<div class="dir-tree">${topItems.map(item =>
-    item.type === 'file'
-      ? `<div class="dir-root-file" data-reads="${item.reads}" data-name="${esc(item.data.file.includes('/') ? item.data.file.split('/').pop() : item.data.file)}">${renderTreeFileRow(item.data)}</div>`
-      : renderDirNode(item.data)
-  ).join('')}</div>`
+  const treeHtml = `<div class="dir-tree">${topItems.map(item => {
+    const isUnread = item.reads === 0
+    if (item.type === 'file') {
+      return `<div class="dir-root-file${isUnread ? ' dir-root-file-unread' : ''}" data-reads="${item.reads}" data-name="${esc(item.data.file.includes('/') ? item.data.file.split('/').pop() : item.data.file)}"${isUnread ? ' data-unread="true" style="display:none"' : ''}>${renderTreeFileRow(item.data)}</div>`
+    }
+    return renderDirNode(item.data)
+  }).join('')}</div>`
 
   // Insights/recommendations
   const insights = []
@@ -510,6 +526,7 @@ function generateHtml(data, workspace) {
     /* Root-level files (not in a directory) */
     .dir-root-file { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 14px 8px 38px; }
     .dir-root-file .tree-file-row { padding: 2px 0; }
+    .tree-file-unread { opacity: 0.5; }
     @media (max-width: 640px) { .tree-file-row { grid-template-columns: 10px minmax(0, 1fr) 80px 30px; } .tree-file-meta { display: none; } }
   </style>
 </head>
@@ -587,6 +604,10 @@ function generateHtml(data, workspace) {
       <label class="hm-checkbox-label">
         <input type="checkbox" id="hm-group-folders" checked onchange="sortHeatmap()">
         Group folders
+      </label>
+      <label class="hm-checkbox-label">
+        <input type="checkbox" id="hm-show-all" onchange="toggleShowAll()">
+        Show all files
       </label>
     </div>
     ${treeHtml}
@@ -793,6 +814,13 @@ function generateHtml(data, workspace) {
       });
     }
 
+    function toggleShowAll() {
+      var show = document.getElementById('hm-show-all').checked;
+      document.querySelectorAll('[data-unread="true"]').forEach(function(el) {
+        el.style.display = show ? '' : 'none';
+      });
+    }
+
     // Apply sort on initial load
     sortHeatmap();
   </script>
@@ -814,7 +842,7 @@ export function insights({ dir = null, workspace = null, days = 30, output = nul
 
   const allFiles = getAllWorkspaceFiles(ws)
   const data = analyze(entries, allFiles, ws, days)
-  const html = generateHtml(data, ws)
+  const html = generateHtml(data, ws, allFiles)
 
   const outPath = output || join(heatmapDir, 'insights.html')
   writeFileSync(outPath, html)

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.4] — 2026-02-18
+
+### Added
+- **"Show all files" checkbox** in insights heatmap — reveals all workspace files and folders, including those with 0 reads. Hidden by default. Unread files appear dimmed with "never read" label.
+
 ## [0.6.3] — 2026-02-18
 
 ### Fixed
