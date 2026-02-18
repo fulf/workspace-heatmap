@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.1] — 2026-02-18
+
+### Added
+- **Sorting controls in `whm insights` File Heatmap section** — interactive controls bar above the directory tree:
+  - **Sort toggle:** "By Reads" (default, sorts by total read count) and "Alphabetical" (sorts by name)
+  - **Group folders checkbox** (default: checked) — when checked, directories are grouped above files at each tree level; when unchecked, directories and files are intermixed and sorted together
+  - All client-side vanilla JS — no server round-trip. Sort keys embedded as `data-reads` and `data-name` attributes on each `.dir-node`, `.dir-root-file`, and `.tree-file-row` element
+  - Controls styled to match report aesthetic (Inter font, slate pill buttons, rounded toggle group)
+
 ## [0.6.0] — 2026-02-18
 
 ### Added

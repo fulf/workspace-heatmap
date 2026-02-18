@@ -255,7 +255,7 @@ function generateHtml(data, workspace) {
     const age = f.lastAccess ? formatAge(data.now - f.lastAccess) : '—'
     const barPct = data.maxCount > 0 ? Math.round(cnt / data.maxCount * 100) : 0
     const fileName = f.file.includes('/') ? f.file.split('/').pop() : f.file
-    return `<div class="tree-file-row">
+    return `<div class="tree-file-row" data-reads="${cnt}" data-name="${esc(fileName)}">
         <div class="tree-file-dot" style="background:${tierColor}"></div>
         <div class="tree-file-name" title="${esc(f.file)}">${esc(fileName)}</div>
         <div class="bar-track"><div class="bar-fill" style="width:${barPct}%;background:${tierColor}"></div></div>
@@ -270,7 +270,7 @@ function generateHtml(data, workspace) {
     const files = [...node.files].sort((a, b) => (b.count || 0) - (a.count || 0))
     const hasContent = children.length > 0 || files.length > 0
 
-    let html = `<div class="dir-node">`
+    let html = `<div class="dir-node" data-reads="${node.totalReads}" data-name="${esc(node.name)}">`
     html += `<div class="dir-header${hasContent ? ' dir-clickable' : ''}"${hasContent ? ' onclick="toggleDir(this)"' : ''}>`
     html += `<span class="dir-arrow">${hasContent ? '▶' : '·'}</span>`
     html += `<span class="dir-icon">📁</span>`
@@ -300,7 +300,7 @@ function generateHtml(data, workspace) {
 
   const treeHtml = `<div class="dir-tree">${topItems.map(item =>
     item.type === 'file'
-      ? `<div class="dir-root-file">${renderTreeFileRow(item.data)}</div>`
+      ? `<div class="dir-root-file" data-reads="${item.reads}" data-name="${esc(item.data.file.includes('/') ? item.data.file.split('/').pop() : item.data.file)}">${renderTreeFileRow(item.data)}</div>`
       : renderDirNode(item.data)
   ).join('')}</div>`
 
@@ -474,6 +474,14 @@ function generateHtml(data, workspace) {
     .stale-file { font-size: 13px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #334155; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .stale-detail { font-size: 12px; color: #92400e; white-space: nowrap; }
     @media (max-width: 640px) { .charts-row { grid-template-columns: 1fr; } .stats-row { justify-content: center; } .file-row { grid-template-columns: minmax(0, 1fr) 80px 30px; } .file-meta { display: none; } .coverage-header { flex-direction: column; text-align: center; } .token-row { grid-template-columns: 1fr 60px 60px; } .token-calc { display: none; } }
+    /* ── Heatmap sort controls ──────────────────────────────────────── */
+    .hm-controls { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+    .hm-sort-group { display: flex; gap: 3px; background: #f1f5f9; border-radius: 8px; padding: 3px; }
+    .hm-sort-btn { padding: 5px 14px; border: none; background: transparent; border-radius: 6px; font-size: 13px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; color: #64748b; cursor: pointer; font-weight: 500; transition: all 0.15s; }
+    .hm-sort-btn.active { background: white; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .hm-sort-btn:hover:not(.active) { color: #334155; background: rgba(226,232,240,0.6); }
+    .hm-checkbox-label { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #475569; cursor: pointer; user-select: none; }
+    .hm-checkbox-label input[type="checkbox"] { accent-color: #2563eb; width: 15px; height: 15px; cursor: pointer; }
     /* ── Directory tree ─────────────────────────────────────────────── */
     .dir-tree { margin-bottom: 32px; display: flex; flex-direction: column; gap: 6px; }
     .dir-node { background: white; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
@@ -570,7 +578,17 @@ function generateHtml(data, workspace) {
     </div>` : ''}
 
     <h2 id="heatmap">🗂️ File Heatmap</h2>
-    <p style="font-size:13px;color:#64748b;margin-bottom:16px;">Click a directory to expand it. 🔴 hot · 🟡 warm · 🔵 cold</p>
+    <p style="font-size:13px;color:#64748b;margin-bottom:12px;">Click a directory to expand it. 🔴 hot · 🟡 warm · 🔵 cold</p>
+    <div class="hm-controls">
+      <div class="hm-sort-group">
+        <button class="hm-sort-btn active" data-sort="reads" onclick="setHmSort(this)">By Reads</button>
+        <button class="hm-sort-btn" data-sort="alpha" onclick="setHmSort(this)">Alphabetical</button>
+      </div>
+      <label class="hm-checkbox-label">
+        <input type="checkbox" id="hm-group-folders" checked onchange="sortHeatmap()">
+        Group folders
+      </label>
+    </div>
     ${treeHtml}
 
     ${cov.tokenEstimates.length > 0 ? `
@@ -731,6 +749,48 @@ function generateHtml(data, workspace) {
       var isOpen = children.style.display !== 'none';
       children.style.display = isOpen ? 'none' : '';
       if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+    }
+
+    function setHmSort(btn) {
+      document.querySelectorAll('.hm-sort-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      sortHeatmap();
+    }
+
+    function sortHeatmap() {
+      var activeBtn = document.querySelector('.hm-sort-btn.active');
+      var sortMode = activeBtn ? activeBtn.dataset.sort : 'reads';
+      var groupFolders = document.getElementById('hm-group-folders')
+        ? document.getElementById('hm-group-folders').checked : true;
+
+      function cmpItems(a, b) {
+        if (sortMode === 'reads') {
+          return parseInt(b.dataset.reads || '0', 10) - parseInt(a.dataset.reads || '0', 10);
+        }
+        return (a.dataset.name || '').localeCompare(b.dataset.name || '');
+      }
+
+      function sortContainer(container, fileSelector) {
+        var dirs = Array.from(container.querySelectorAll(':scope > .dir-node'));
+        var files = Array.from(container.querySelectorAll(':scope > ' + fileSelector));
+        var ordered;
+        if (groupFolders) {
+          dirs.sort(cmpItems);
+          files.sort(cmpItems);
+          ordered = dirs.concat(files);
+        } else {
+          ordered = dirs.concat(files);
+          ordered.sort(cmpItems);
+        }
+        ordered.forEach(function(el) { container.appendChild(el); });
+      }
+
+      var tree = document.querySelector('.dir-tree');
+      if (tree) sortContainer(tree, '.dir-root-file');
+
+      document.querySelectorAll('.dir-children').forEach(function(dc) {
+        sortContainer(dc, '.tree-file-row');
+      });
     }
   </script>
 </body>
