@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.4] — 2026-02-18
+
+### Added
+- `whm --version` / `whm -v` / `whm -V` / `whm version` — prints the current version
+
 ## [0.4.3] — 2026-02-18
 
 ### Fixed

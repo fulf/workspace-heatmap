@@ -191,6 +191,19 @@ async function main() {
       break
     }
 
+    case 'version':
+    case '--version':
+    case '-v':
+    case '-V': {
+      const { readFileSync } = await import('node:fs')
+      const { join, dirname } = await import('node:path')
+      const { fileURLToPath } = await import('node:url')
+      const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json')
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+      console.log(pkg.version)
+      break
+    }
+
     case 'help':
     case '--help':
     case '-h':
