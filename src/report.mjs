@@ -6,7 +6,7 @@
 import { resolve } from 'node:path'
 import {
   DEFAULT_DIR, loadEntries, getAllWorkspaceFiles,
-  formatAge, formatTokens, computeCoverage,
+  formatAge, formatTokens, computeCoverage, buildDirectoryTree,
 } from './utils.mjs'
 
 // ANSI colors
@@ -32,7 +32,7 @@ function makeBar(count, maxCount, width = 20) {
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
 
-export function report({ dir = null, workspace = null, days = 30, json = false, all = false }) {
+export function report({ dir = null, workspace = null, days = 30, json = false, all = false, filterDir = null, depth = null }) {
   const ws = workspace || process.cwd()
   const heatmapDir = dir || resolve(ws, DEFAULT_DIR)
   const entries = loadEntries(heatmapDir, days)
@@ -65,8 +65,16 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
   const allFiles = getAllWorkspaceFiles(ws)
   const deadFiles = allFiles.filter(f => f.endsWith('.md') && !fileCounts[f])
 
-  // Sort by count descending
-  const sorted = Object.entries(fileCounts).sort((a, b) => b[1] - a[1])
+  // Sort by count descending, optionally filtered by filterDir
+  let sorted = Object.entries(fileCounts).sort((a, b) => b[1] - a[1])
+  if (filterDir) {
+    const prefix = filterDir.replace(/\/+$/, '') + '/'
+    sorted = sorted.filter(([f]) => f === filterDir || f.startsWith(prefix))
+    if (sorted.length === 0) {
+      console.log(`${c.yellow}No files found under ${filterDir}${c.reset}`)
+      return
+    }
+  }
   const maxCount = sorted[0]?.[1] || 1
 
   // Classify into tiers
@@ -97,11 +105,73 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
     return
   }
 
-  // Pretty output
+  // Pretty output header
+  const dirLabel = filterDir ? ` [${filterDir}]` : ''
   console.log()
-  console.log(`${c.bold}📊 Workspace File Heatmap${c.reset} ${c.dim}(last ${days} days, ${entries.length} reads)${c.reset}`)
+  console.log(`${c.bold}📊 Workspace File Heatmap${c.reset}${c.cyan}${dirLabel}${c.reset} ${c.dim}(last ${days} days, ${entries.length} reads)${c.reset}`)
   console.log(`${c.dim}${'━'.repeat(60)}${c.reset}`)
 
+  // ── Tree view (--depth) ─────────────────────────────────────────────
+  if (depth !== null) {
+    const fileDataMap = {}
+    for (const [file, count] of sorted) {
+      fileDataMap[file] = { count, lastAccess: fileLastAccess[file], sessions: fileSessions[file]?.size || 0 }
+    }
+    const tree = buildDirectoryTree(sorted, fileDataMap)
+
+    function printTreeNode(node, currentDepth, indentLevel) {
+      const indent = '  '.repeat(indentLevel)
+      const label = node.path ? node.name + '/' : '(root)'
+      const readsStr = `${node.totalReads} reads`
+      const filesStr = `${node.fileCount} files`
+      // Determine color from hottest file
+      let nodeColor = c.blue
+      let maxFileCount = 0
+      ;(function walk(n) {
+        for (const f of n.files) if ((f.count || 0) > maxFileCount) maxFileCount = f.count || 0
+        for (const child of Object.values(n.children)) walk(child)
+      })(node)
+      if (maxFileCount >= dailyThreshold) nodeColor = c.red
+      else if (maxFileCount >= weeklyThreshold) nodeColor = c.yellow
+
+      console.log(`${indent}${nodeColor}📁 ${label.padEnd(32 - indentLevel * 2)}${c.reset}  ${c.bold}${readsStr.padStart(10)}${c.reset}  ${c.dim}${filesStr.padStart(8)}${c.reset}`)
+
+      if (currentDepth < depth) {
+        const children = Object.values(node.children).sort((a, b) => b.totalReads - a.totalReads)
+        for (const child of children) {
+          printTreeNode(child, currentDepth + 1, indentLevel + 1)
+        }
+      }
+    }
+
+    console.log()
+    // Print root files if any
+    const rootFiles = [...tree.files].sort((a, b) => (b.count || 0) - (a.count || 0))
+    if (rootFiles.length > 0 || Object.keys(tree.children).length > 0) {
+      // Show root level
+      const topDirs = Object.values(tree.children).sort((a, b) => b.totalReads - a.totalReads)
+      const topItems = [
+        ...rootFiles.map(f => ({ type: 'file', reads: f.count || 0, data: f })),
+        ...topDirs.map(d => ({ type: 'dir', reads: d.totalReads, data: d })),
+      ].sort((a, b) => b.reads - a.reads)
+
+      // Directories first (sorted by totalReads), then root files
+      const topDirsOnly = topItems.filter(i => i.type === 'dir')
+      const rootFilesOnly = topItems.filter(i => i.type === 'file')
+      for (const item of topDirsOnly) printTreeNode(item.data, 1, 0)
+      for (const item of rootFilesOnly) {
+        const f = item.data
+        const bar = makeBar(f.count, maxCount, 14)
+        const fColor = (f.count || 0) >= dailyThreshold ? c.red : (f.count || 0) >= weeklyThreshold ? c.yellow : c.blue
+        const name = f.file.length > 34 ? '...' + f.file.slice(-31) : f.file
+        console.log(`${fColor}📄 ${name.padEnd(34)}${c.reset} ${fColor}${bar}${c.reset} ${c.bold}${String(f.count).padStart(4)} reads${c.reset}`)
+      }
+    }
+    console.log()
+    return
+  }
+
+  // ── Flat tier view (default) ────────────────────────────────────────
   const printTier = (label, emoji, color, files) => {
     if (files.length === 0) return
     console.log()

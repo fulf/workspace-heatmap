@@ -160,3 +160,61 @@ export function computeCoverage(entries, allFiles, workspace, days) {
     totalTokens,
   }
 }
+
+/**
+ * Build a nested directory tree from sorted file data.
+ *
+ * Tree node shape:
+ *   { name, path, totalReads, fileCount, children: {path→node}, files: [fileData...] }
+ *
+ * @param {Array<[string, number]>} sorted  - [file, count] pairs sorted by count desc
+ * @param {Object} fileDataMap              - { [file]: { count, lastAccess, sessions, tier, pct, … } }
+ * @returns {Object} root tree node
+ */
+export function buildDirectoryTree(sorted, fileDataMap) {
+  const nodes = {}
+
+  const root = {
+    name: '(root)',
+    path: '',
+    totalReads: 0,
+    fileCount: 0,
+    children: {},
+    files: [],
+  }
+  nodes[''] = root
+
+  function getOrCreateNode(dirPath) {
+    if (nodes[dirPath]) return nodes[dirPath]
+    const parts = dirPath.split('/')
+    const name = parts[parts.length - 1]
+    const parentPath = parts.slice(0, -1).join('/')
+    const parent = getOrCreateNode(parentPath)
+    const node = { name, path: dirPath, totalReads: 0, fileCount: 0, children: {}, files: [] }
+    nodes[dirPath] = node
+    parent.children[dirPath] = node
+    return node
+  }
+
+  for (const [file] of sorted) {
+    const slashIdx = file.lastIndexOf('/')
+    const dirPath = slashIdx === -1 ? '' : file.slice(0, slashIdx)
+    getOrCreateNode(dirPath).files.push({ file, ...(fileDataMap[file] || {}) })
+  }
+
+  // Propagate totalReads + fileCount upward
+  function propagate(node) {
+    let reads = node.files.reduce((s, f) => s + (f.count || 0), 0)
+    let count = node.files.length
+    for (const child of Object.values(node.children)) {
+      propagate(child)
+      reads += child.totalReads
+      count += child.fileCount
+    }
+    node.totalReads = reads
+    node.fileCount = count
+  }
+  propagate(root)
+
+  return root
+}

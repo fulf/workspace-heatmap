@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0] — 2026-02-18
+
+### Added
+- **Interactive directory tree in `whm insights`** — replaces the flat hot/warm/cold file list with a collapsible directory tree. Top-level directories are sorted by total reads; click to expand subdirectories and files. Files inside each directory show count, bar, tier color, last access, and session count. Heat-coded directory dot (🔴/🟡/🔵) based on hottest file in the subtree. All vanilla JS, no dependencies — report stays self-contained.
+- **`whm report --depth <n>`** — terminal tree view. Shows directory-level summaries to depth n. Color-codes each directory by heat tier. Root-level files shown below directories sorted by read count.
+- **`whm report --dir <path>`** — filter terminal report to only show files within a specific directory path. Combines with `--depth` for tree view within a subtree.
+- **`buildDirectoryTree(sorted, fileDataMap)`** helper in `src/utils.mjs` — builds a nested tree structure (`name`, `path`, `totalReads`, `fileCount`, `children`, `files`) from sorted file data, with automatic propagation of totals from leaves to root.
+
+### Changed
+- `whm insights` heatmap section now shows `🗂️ File Heatmap` with directory tree instead of tier-grouped flat list
+- Old `.tier-section` CSS classes removed; replaced by `.dir-tree`, `.dir-node`, `.dir-header`, `.tree-file-row` etc.
+
 ## [0.5.6] — 2026-02-18
 
 ### Changed

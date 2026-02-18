@@ -119,12 +119,15 @@ async function main() {
 
     case 'report': {
       const { report } = await import('../src/report.mjs')
+      const depthVal = flags.depth !== undefined ? parseInt(flags.depth, 10) : null
       report({
-        dir: flags.dir || null,
+        dir: null,                           // .heatmap dir override (keep separate from filterDir)
         workspace: flags.workspace || process.cwd(),
         days: parseInt(flags.days || '30', 10),
         json: flags.json || false,
         all: flags.all || false,
+        filterDir: flags.dir || null,        // filter to files under this path
+        depth: Number.isFinite(depthVal) ? depthVal : null,
       })
       break
     }
@@ -236,19 +239,22 @@ async function main() {
 \x1b[1mworkspace-heatmap\x1b[0m — Track which files your AI agent actually reads
 
 \x1b[1mUsage:\x1b[0m
-  whm init                         Set up tracking in current workspace
-  whm track <file>                 Log a file read (called by hooks)
-  whm report [--days N] [--all]    Show the heatmap (terminal)
-  whm insights [--days N]          Generate a beautiful HTML report
-  whm mine <dir> [--format F]      Extract reads from session transcripts
-  whm status                       Show tracking status
+  whm init                                Set up tracking in current workspace
+  whm track <file>                        Log a file read (called by hooks)
+  whm report [--days N] [--all]           Show the heatmap (terminal)
+  whm report --dir <path>                 Filter to files under a directory
+  whm report --depth <N>                  Show directory tree to depth N
+  whm insights [--days N]                 Generate a beautiful HTML report
+  whm mine <dir> [--format F]             Extract reads from session transcripts
+  whm status                              Show tracking status
 
 \x1b[1mOptions:\x1b[0m
   --workspace <path>    Override workspace directory
-  --dir <path>          Override .heatmap directory
   --days <N>            Report period in days (default: 30)
   --all                 Include dead files in report
   --json                JSON output (report)
+  --dir <path>          Filter report to files under a directory (report)
+  --depth <N>           Show directory tree view to depth N (report)
   --output <path>       Output file path (insights)
   --no-open             Don't auto-open the HTML file (insights)
   --format <F>          Transcript format: openclaw, claude-code (mine)

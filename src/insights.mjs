@@ -8,7 +8,7 @@ import { resolve, join, dirname, basename } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import {
   loadEntries, getAllWorkspaceFiles, formatAge,
-  formatTokens, computeCoverage,
+  formatTokens, computeCoverage, buildDirectoryTree,
 } from './utils.mjs'
 
 const DEFAULT_DIR = '.heatmap'
@@ -223,20 +223,86 @@ function generateHtml(data, workspace) {
     return `${x},${y}`
   }).join(' ')
 
-  // Tier colors
-  const tierMeta = {
-    hot: { emoji: '🔴', label: 'HOT — read daily', color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
-    warm: { emoji: '🟡', label: 'WARM — read weekly', color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
-    cold: { emoji: '🔵', label: 'COLD — read rarely', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  // ── Directory tree helpers ──────────────────────────────────────────
+  const dailyThreshold = data.days
+  const weeklyThreshold = Math.max(Math.floor(data.days / 7), 1)
+
+  // Build fileDataMap for tree builder
+  const fileDataMap = {}
+  for (const tier of ['hot', 'warm', 'cold']) {
+    for (const f of data.tiers[tier]) {
+      fileDataMap[f.file] = f
+    }
+  }
+  const dirTree = buildDirectoryTree(data.sorted, fileDataMap)
+
+  function getDirHeatColor(node) {
+    let maxFileCount = 0
+    function walk(n) {
+      for (const f of n.files) if ((f.count || 0) > maxFileCount) maxFileCount = f.count || 0
+      for (const child of Object.values(n.children)) walk(child)
+    }
+    walk(node)
+    if (maxFileCount >= dailyThreshold) return '#dc2626'
+    if (maxFileCount >= weeklyThreshold) return '#d97706'
+    if (maxFileCount > 0) return '#2563eb'
+    return '#94a3b8'
   }
 
-  const renderFileRows = (files, color) => files.slice(0, 15).map(f => `
-    <div class="file-row">
-      <div class="file-name" title="${esc(f.file)}">${esc(f.file)}</div>
-      ${barHtml(f.count, data.maxCount, color)}
-      <div class="file-count">${f.count}</div>
-      <div class="file-meta">${f.pct}% · ${formatAge(data.now - f.lastAccess)} · ${f.sessions} sess</div>
-    </div>`).join('')
+  function renderTreeFileRow(f) {
+    const cnt = f.count || 0
+    const tierColor = cnt >= dailyThreshold ? '#dc2626' : cnt >= weeklyThreshold ? '#d97706' : '#2563eb'
+    const age = f.lastAccess ? formatAge(data.now - f.lastAccess) : '—'
+    const barPct = data.maxCount > 0 ? Math.round(cnt / data.maxCount * 100) : 0
+    const fileName = f.file.includes('/') ? f.file.split('/').pop() : f.file
+    return `<div class="tree-file-row">
+        <div class="tree-file-dot" style="background:${tierColor}"></div>
+        <div class="tree-file-name" title="${esc(f.file)}">${esc(fileName)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${barPct}%;background:${tierColor}"></div></div>
+        <div class="tree-file-count">${cnt}</div>
+        <div class="tree-file-meta">${age} · ${f.sessions || 0} sess</div>
+      </div>`
+  }
+
+  function renderDirNode(node) {
+    const heatColor = getDirHeatColor(node)
+    const children = Object.values(node.children).sort((a, b) => b.totalReads - a.totalReads)
+    const files = [...node.files].sort((a, b) => (b.count || 0) - (a.count || 0))
+    const hasContent = children.length > 0 || files.length > 0
+
+    let html = `<div class="dir-node">`
+    html += `<div class="dir-header${hasContent ? ' dir-clickable' : ''}"${hasContent ? ' onclick="toggleDir(this)"' : ''}>`
+    html += `<span class="dir-arrow">${hasContent ? '▶' : '·'}</span>`
+    html += `<span class="dir-icon">📁</span>`
+    html += `<span class="dir-name">${esc(node.name)}/</span>`
+    html += `<span class="dir-heat-dot" style="background:${heatColor}"></span>`
+    html += `<span class="dir-meta-reads">${node.totalReads} reads</span>`
+    html += `<span class="dir-meta-sep">·</span>`
+    html += `<span class="dir-meta-files">${node.fileCount} file${node.fileCount !== 1 ? 's' : ''}</span>`
+    html += `</div>`
+    if (hasContent) {
+      html += `<div class="dir-children" style="display:none">`
+      for (const child of children) html += renderDirNode(child)
+      for (const f of files) html += renderTreeFileRow(f)
+      html += `</div>`
+    }
+    html += `</div>`
+    return html
+  }
+
+  // Top-level items: mix root files + top-level dirs, sorted by reads desc
+  const topDirs = Object.values(dirTree.children).sort((a, b) => b.totalReads - a.totalReads)
+  const rootFiles = [...dirTree.files].sort((a, b) => (b.count || 0) - (a.count || 0))
+  const topItems = [
+    ...rootFiles.map(f => ({ type: 'file', reads: f.count || 0, data: f })),
+    ...topDirs.map(d => ({ type: 'dir', reads: d.totalReads, data: d })),
+  ].sort((a, b) => b.reads - a.reads)
+
+  const treeHtml = `<div class="dir-tree">${topItems.map(item =>
+    item.type === 'file'
+      ? `<div class="dir-root-file">${renderTreeFileRow(item.data)}</div>`
+      : renderDirNode(item.data)
+  ).join('')}</div>`
 
   // Insights/recommendations
   const insights = []
@@ -351,15 +417,7 @@ function generateHtml(data, workspace) {
     .bar-track { flex: 1; height: 6px; background: #f1f5f9; border-radius: 3px; margin: 0 8px; }
     .bar-fill { height: 100%; border-radius: 3px; }
     .bar-value { width: 36px; font-size: 11px; font-weight: 500; color: #64748b; text-align: right; }
-    .tier-section { margin-bottom: 32px; }
-    .tier-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
-    .tier-emoji { font-size: 18px; }
-    .tier-label { font-size: 14px; font-weight: 600; }
-    .tier-count-badge { font-size: 11px; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; margin-left: auto; }
-    .file-row { display: grid; grid-template-columns: minmax(0, 1.2fr) 1fr 40px minmax(0, 0.8fr); align-items: center; padding: 6px 0; gap: 8px; }
-    .file-name { font-size: 12px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .file-count { font-size: 12px; font-weight: 600; color: #0f172a; text-align: right; }
-    .file-meta { font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* tier-section CSS removed — replaced by dir-tree */
     .dead-section { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-top: 16px; }
     .dead-file { font-size: 12px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #94a3b8; padding: 3px 0; }
     .insight-card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
@@ -416,6 +474,35 @@ function generateHtml(data, workspace) {
     .stale-file { font-size: 13px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #334155; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .stale-detail { font-size: 12px; color: #92400e; white-space: nowrap; }
     @media (max-width: 640px) { .charts-row { grid-template-columns: 1fr; } .stats-row { justify-content: center; } .file-row { grid-template-columns: minmax(0, 1fr) 80px 30px; } .file-meta { display: none; } .coverage-header { flex-direction: column; text-align: center; } .token-row { grid-template-columns: 1fr 60px 60px; } .token-calc { display: none; } }
+    /* ── Directory tree ─────────────────────────────────────────────── */
+    .dir-tree { margin-bottom: 32px; display: flex; flex-direction: column; gap: 6px; }
+    .dir-node { background: white; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+    .dir-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 13px; }
+    .dir-clickable { cursor: pointer; user-select: none; }
+    .dir-clickable:hover { background: #f8fafc; }
+    .dir-arrow { font-size: 10px; color: #94a3b8; width: 12px; flex-shrink: 0; transition: transform 0.15s; }
+    .dir-icon { font-size: 15px; flex-shrink: 0; }
+    .dir-name { font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; font-weight: 600; color: #334155; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dir-heat-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .dir-meta-reads { font-size: 12px; color: #475569; white-space: nowrap; }
+    .dir-meta-sep { font-size: 12px; color: #cbd5e1; }
+    .dir-meta-files { font-size: 12px; color: #94a3b8; white-space: nowrap; }
+    .dir-children { padding: 6px 14px 10px 38px; border-top: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 2px; }
+    /* Nested dir-nodes inside children */
+    .dir-children .dir-node { border: none; border-radius: 4px; background: #fafafa; margin: 2px 0; }
+    .dir-children .dir-header { padding: 7px 10px; }
+    .dir-children .dir-children { padding-left: 30px; }
+    /* File rows inside tree */
+    .tree-file-row { display: grid; grid-template-columns: 10px minmax(0, 1.2fr) 1fr 44px minmax(0, 0.8fr); align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f8fafc; }
+    .tree-file-row:last-child { border-bottom: none; }
+    .tree-file-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .tree-file-name { font-size: 12px; font-family: 'SF Mono', SFMono-Regular, Consolas, monospace; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tree-file-count { font-size: 12px; font-weight: 600; color: #0f172a; text-align: right; }
+    .tree-file-meta { font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Root-level files (not in a directory) */
+    .dir-root-file { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 14px 8px 38px; }
+    .dir-root-file .tree-file-row { padding: 2px 0; }
+    @media (max-width: 640px) { .tree-file-row { grid-template-columns: 10px minmax(0, 1fr) 80px 30px; } .tree-file-meta { display: none; } }
   </style>
 </head>
 <body>
@@ -482,22 +569,9 @@ function generateHtml(data, workspace) {
       </div>`).join('')}
     </div>` : ''}
 
-    <h2 id="heatmap">File Heatmap</h2>
-
-    ${Object.entries(tierMeta).map(([tier, meta]) => {
-      const files = data.tiers[tier]
-      if (files.length === 0) return ''
-      return `
-    <div class="tier-section">
-      <div class="tier-header">
-        <span class="tier-emoji">${meta.emoji}</span>
-        <span class="tier-label" style="color:${meta.color}">${meta.label}</span>
-        <span class="tier-count-badge">${files.length} file${files.length !== 1 ? 's' : ''}</span>
-      </div>
-      ${renderFileRows(files, meta.color)}
-      ${files.length > 15 ? `<div style="font-size:12px;color:#94a3b8;padding:8px 0;">… and ${files.length - 15} more</div>` : ''}
-    </div>`
-    }).join('')}
+    <h2 id="heatmap">🗂️ File Heatmap</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px;">Click a directory to expand it. 🔴 hot · 🟡 warm · 🔵 cold</p>
+    ${treeHtml}
 
     ${cov.tokenEstimates.length > 0 ? `
     <h2 id="tokens">💰 Token Budget</h2>
@@ -649,6 +723,16 @@ function generateHtml(data, workspace) {
       <a href="https://github.com/fulf/workspace-heatmap">workspace-heatmap</a> · Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC
     </div>
   </div>
+  <script>
+    function toggleDir(header) {
+      var children = header.parentElement.querySelector('.dir-children');
+      if (!children) return;
+      var arrow = header.querySelector('.dir-arrow');
+      var isOpen = children.style.display !== 'none';
+      children.style.display = isOpen ? 'none' : '';
+      if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+    }
+  </script>
 </body>
 </html>`
 }
