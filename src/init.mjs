@@ -61,7 +61,7 @@ function initClaudeCode(workspace, trackerPath) {
     try { settings = JSON.parse(readFileSync(settingsFile, 'utf-8')) } catch { settings = {} }
   }
 
-  // Add PostToolUse hook for Read tool (new format since Claude Code 2025+)
+  // Add PostToolUse hooks for file-reading tools (Claude Code 2025+ format)
   if (!settings.hooks) settings.hooks = {}
   if (!settings.hooks.PostToolUse) settings.hooks.PostToolUse = []
 
@@ -90,10 +90,14 @@ function initClaudeCode(workspace, trackerPath) {
     ? `node "${trackerPath}" --stdin --dir "${heatmapDir}"`
     : `npx -y workspace-heatmap track --stdin --dir "${heatmapDir}"`
 
-  settings.hooks.PostToolUse.push({
-    matcher: 'Read',
-    hooks: [{ type: 'command', command: cmd }],
-  })
+  // Track Read, Grep, and Bash (file-reading commands)
+  const trackedTools = ['Read', 'Grep', 'Bash']
+  for (const tool of trackedTools) {
+    settings.hooks.PostToolUse.push({
+      matcher: tool,
+      hooks: [{ type: 'command', command: cmd }],
+    })
+  }
 
   writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + '\n')
   return { installed: true, file: settingsFile }

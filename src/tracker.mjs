@@ -57,19 +57,68 @@ function readStdin() {
 }
 
 /**
- * Parse Claude Code hook stdin JSON and extract file path + metadata.
- * Returns { file, tool, session } or null if not applicable.
+ * Extract file paths from a Bash command string.
+ * Catches simple patterns: cat, head, tail, less, more, wc, sort, etc.
+ * Returns array of file paths or empty array.
+ */
+function extractBashFilePaths(command) {
+  if (!command) return []
+  // Match common file-reading commands followed by file paths
+  // Handles: cat file, head -n 10 file, tail -f file, etc.
+  const readers = /\b(cat|head|tail|less|more|wc|sort|uniq|nl|tac|rev|fold|paste|expand)\b/
+  if (!readers.test(command)) return []
+
+  const files = []
+  // Split by pipe/semicolon/&&/|| to get individual commands
+  const parts = command.split(/[|;&]/).map(s => s.trim())
+  for (const part of parts) {
+    if (!readers.test(part)) continue
+    // Extract non-flag arguments (skip things starting with -)
+    const tokens = part.split(/\s+/).slice(1) // skip the command itself
+    for (const token of tokens) {
+      if (!token.startsWith('-') && !token.startsWith('$') && !token.startsWith('(') && token.length > 0) {
+        // Looks like a file path
+        files.push(token.replace(/^["']|["']$/g, '')) // strip quotes
+      }
+    }
+  }
+  return files
+}
+
+/**
+ * Parse Claude Code hook stdin JSON and extract file path(s) + metadata.
+ * Returns array of { file, tool, session } or empty array if not applicable.
  */
 function parseHookStdin(json) {
   try {
     const data = JSON.parse(json)
-    const file = data.tool_input?.file_path || data.tool_input?.path
-    if (!file) return null
     const tool = data.tool_name || 'Read'
     const session = data.session_id || null
-    return { file, tool, session }
+
+    // Read tool — single file
+    if (tool === 'Read') {
+      const file = data.tool_input?.file_path || data.tool_input?.path
+      return file ? [{ file, tool, session }] : []
+    }
+
+    // Grep tool — search path (file or directory being searched)
+    if (tool === 'Grep') {
+      const file = data.tool_input?.path || data.tool_input?.file_path
+      return file ? [{ file, tool, session }] : []
+    }
+
+    // Bash tool — try to extract file paths from command
+    if (tool === 'Bash') {
+      const command = data.tool_input?.command
+      const files = extractBashFilePaths(command)
+      return files.map(f => ({ file: f, tool, session }))
+    }
+
+    // Fallback — try common field names
+    const file = data.tool_input?.file_path || data.tool_input?.path
+    return file ? [{ file, tool, session }] : []
   } catch {
-    return null
+    return []
   }
 }
 
@@ -95,12 +144,12 @@ if (process.argv[1] && (process.argv[1].endsWith('tracker.mjs') || process.argv[
     // Read from stdin (Claude Code hook mode)
     readStdin().then(input => {
       if (!input) process.exit(0)
-      const parsed = parseHookStdin(input)
-      if (parsed) {
+      const entries = parseHookStdin(input)
+      for (const entry of entries) {
         track({
-          file: parsed.file,
-          tool: parsed.tool,
-          session: session || parsed.session,
+          file: entry.file,
+          tool: entry.tool,
+          session: session || entry.session,
           dir,
         })
       }

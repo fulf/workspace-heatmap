@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1] — 2026-02-18
+
+### Added
+- **Multi-tool tracking** — now tracks `Read`, `Grep`, and `Bash` file reads (was Read only)
+  - **Grep**: logs the search path (`tool_input.path`)
+  - **Bash**: extracts file paths from `cat`, `head`, `tail`, `less`, `more`, `wc`, `sort`, `uniq` and similar commands; ignores non-file-reading commands
+- `whm init` registers PostToolUse hooks for all three tools
+
 ## [0.5.0] — 2026-02-18
 
 ### Fixed

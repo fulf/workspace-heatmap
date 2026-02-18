@@ -1,6 +1,6 @@
 {
   "name": "workspace-heatmap",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Track and visualize which files your AI agent actually reads. Heatmap your workspace.",
   "type": "module",
   "bin": {

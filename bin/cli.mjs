@@ -80,6 +80,11 @@ async function main() {
     case 'track': {
       // --stdin mode: read Claude Code hook JSON from stdin
       if (flags.stdin || (!positional[0] && !process.stdin.isTTY)) {
+        // Stdin mode — delegate to tracker.mjs which handles parsing
+        const { execSync } = await import('node:child_process')
+        const { fileURLToPath } = await import('node:url')
+        const { join, dirname } = await import('node:path')
+        const trackerPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'tracker.mjs')
         let data = ''
         process.stdin.setEncoding('utf-8')
         await new Promise((res) => {
@@ -88,19 +93,10 @@ async function main() {
           setTimeout(res, 1000)
         })
         if (data) {
+          const dirArgs = flags.dir ? ` --dir "${flags.dir}"` : ''
+          const wsArgs = flags.workspace ? ` --workspace "${flags.workspace}"` : ''
           try {
-            const parsed = JSON.parse(data)
-            const file = parsed.tool_input?.file_path || parsed.tool_input?.path
-            if (file) {
-              const { track } = await import('../src/tracker.mjs')
-              track({
-                file,
-                tool: parsed.tool_name || 'Read',
-                session: flags.session || parsed.session_id || null,
-                dir: flags.dir || null,
-                workspace: flags.workspace || process.cwd(),
-              })
-            }
+            execSync(`node "${trackerPath}" --stdin${dirArgs}${wsArgs}`, { input: data, stdio: ['pipe', 'inherit', 'inherit'] })
           } catch {}
         }
         break
