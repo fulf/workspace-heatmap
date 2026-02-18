@@ -22,6 +22,55 @@ function validatePath(p) {
   }
 }
 
+/**
+ * Extract @file references from a markdown file's content.
+ * Matches patterns like @SOUL.md, @docs/setup.md, @./relative/path.md
+ * Avoids matching email addresses or @mentions.
+ */
+function extractAtReferences(content) {
+  const refs = []
+  // Match @path where path looks like a file (contains . or /)
+  // Negative lookbehind for word chars (avoids email@domain)
+  const pattern = /(?<![.\w])@((?:\.\/)?[\w./_-]+\.[\w]+)/g
+  let match
+  while ((match = pattern.exec(content)) !== null) {
+    refs.push(match[1])
+  }
+  return refs
+}
+
+/**
+ * Recursively collect all files referenced via @file chains starting from a root file.
+ * Returns a Set of relative file paths (including the root).
+ */
+function collectAtReferenceChain(workspace, rootFile, visited = new Set()) {
+  if (visited.has(rootFile)) return visited
+  const fullPath = join(workspace, rootFile)
+  if (!existsSync(fullPath)) return visited
+
+  visited.add(rootFile)
+
+  try {
+    const content = readFileSync(fullPath, 'utf-8')
+    const refs = extractAtReferences(content)
+    for (const ref of refs) {
+      // Resolve relative to the referencing file's directory
+      const refDir = dirname(rootFile)
+      const resolved = refDir === '.' ? ref : join(refDir, ref)
+      // Also try relative to workspace root
+      const candidates = [resolved, ref]
+      for (const candidate of candidates) {
+        if (!visited.has(candidate) && existsSync(join(workspace, candidate))) {
+          collectAtReferenceChain(workspace, candidate, visited)
+          break
+        }
+      }
+    }
+  } catch {}
+
+  return visited
+}
+
 function findPackageBin() {
   // Try to find the installed tracker path
   try {
@@ -99,16 +148,25 @@ function initClaudeCode(workspace, trackerPath) {
     })
   }
 
-  // Track CLAUDE.md on session start (Claude Code reads it automatically, not via Read tool)
+  // Track CLAUDE.md + all @file reference chains on session start
+  // (Claude Code reads these automatically, not via the Read tool)
   if (!settings.hooks.SessionStart) settings.hooks.SessionStart = []
   const claudeMdPath = join(workspace, 'CLAUDE.md')
   if (existsSync(claudeMdPath)) {
-    const sessionCmd = trackerPath
-      ? `node "${trackerPath}" "CLAUDE.md" --dir "${heatmapDir}"`
-      : `npx -y workspace-heatmap track "CLAUDE.md" --dir "${heatmapDir}"`
-    settings.hooks.SessionStart.push({
-      hooks: [{ type: 'command', command: sessionCmd }],
-    })
+    const autoReadFiles = collectAtReferenceChain(workspace, 'CLAUDE.md')
+    const hookCommands = []
+    for (const file of autoReadFiles) {
+      validatePath(file)
+      const fileCmd = trackerPath
+        ? `node "${trackerPath}" "${file}" --dir "${heatmapDir}"`
+        : `npx -y workspace-heatmap track "${file}" --dir "${heatmapDir}"`
+      hookCommands.push({ type: 'command', command: fileCmd })
+    }
+    if (hookCommands.length > 0) {
+      settings.hooks.SessionStart.push({
+        hooks: hookCommands,
+      })
+    }
   }
 
   writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + '\n')

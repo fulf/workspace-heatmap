@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.4] — 2026-02-18
+
+### Added
+- **Recursive `@file` reference tracking** — `CLAUDE.md` can contain `@SOUL.md`, `@docs/setup.md` etc. which Claude Code auto-loads. These referenced files can themselves contain more `@file` references. `whm init` now recursively resolves the entire chain and tracks all auto-loaded files via the SessionStart hook.
+
 ## [0.5.3] — 2026-02-18
 
 ### Added
