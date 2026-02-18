@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.3] — 2026-02-18
+
+### Added
+- **Track `CLAUDE.md` on session start** — Claude Code reads `CLAUDE.md` automatically at startup (not via the Read tool), so PostToolUse hooks miss it. Now adds a `SessionStart` hook to log the read when `CLAUDE.md` exists in the workspace.
+
 ## [0.5.2] — 2026-02-18
 
 ### Changed

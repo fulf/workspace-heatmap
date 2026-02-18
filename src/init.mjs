@@ -99,6 +99,18 @@ function initClaudeCode(workspace, trackerPath) {
     })
   }
 
+  // Track CLAUDE.md on session start (Claude Code reads it automatically, not via Read tool)
+  if (!settings.hooks.SessionStart) settings.hooks.SessionStart = []
+  const claudeMdPath = join(workspace, 'CLAUDE.md')
+  if (existsSync(claudeMdPath)) {
+    const sessionCmd = trackerPath
+      ? `node "${trackerPath}" "CLAUDE.md" --dir "${heatmapDir}"`
+      : `npx -y workspace-heatmap track "CLAUDE.md" --dir "${heatmapDir}"`
+    settings.hooks.SessionStart.push({
+      hooks: [{ type: 'command', command: sessionCmd }],
+    })
+  }
+
   writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + '\n')
   return { installed: true, file: settingsFile }
 }
