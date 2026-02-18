@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.6] — 2026-02-18
+
+### Changed
+- **README.md fully rewritten** to reflect current state: PostToolUse stdin hooks, Read+Grep tracking, `@file` reference chain resolution, SessionStart hook for CLAUDE.md, unread docs (.md only), `--version` flag, npx usage notes, existing hooks preservation, and updated FAQ.
+
 ## [0.5.5] — 2026-02-18
 
 ### Changed
