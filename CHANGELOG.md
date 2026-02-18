@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.2] — 2026-02-18
+
+### Fixed
+- **Sorting not applied on page load** — "Group folders" checkbox was checked but sort wasn't applied until toggling. Now calls `sortHeatmap()` on initial load.
+
 ## [0.6.1] — 2026-02-18
 
 ### Added

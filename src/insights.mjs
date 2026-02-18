@@ -792,6 +792,9 @@ function generateHtml(data, workspace) {
         sortContainer(dc, '.tree-file-row');
       });
     }
+
+    // Apply sort on initial load
+    sortHeatmap();
   </script>
 </body>
 </html>`
