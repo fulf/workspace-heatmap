@@ -234,15 +234,15 @@ function generateHtml(data, workspace, allFiles) {
       fileDataMap[f.file] = f
     }
   }
-  // Include all workspace files (unread ones get count=0)
+  // Include unread .md files (we only care about documentation, not code/config)
   const readFiles = new Set(Object.keys(fileDataMap))
   const allFileSorted = [
     ...data.sorted,
-    ...allFiles.filter(f => !readFiles.has(f)).map(f => [f, 0]),
+    ...allFiles.filter(f => f.endsWith('.md') && !readFiles.has(f)).map(f => [f, 0]),
   ]
   const allFileDataMap = { ...fileDataMap }
   for (const f of allFiles) {
-    if (!allFileDataMap[f]) {
+    if (f.endsWith('.md') && !allFileDataMap[f]) {
       allFileDataMap[f] = { file: f, count: 0, tier: 'dead', lastAccess: null, sessions: 0, pct: 0 }
     }
   }

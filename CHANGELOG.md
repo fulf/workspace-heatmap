@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.5] — 2026-02-18
+
+### Fixed
+- **"Show all files" only includes `.md` files** — no longer shows Dockerfiles, YAML configs, source code, etc. Consistent with the rest of the tool: we track all reads, but unread file discovery is documentation-only.
+
 ## [0.6.4] — 2026-02-18
 
 ### Added
