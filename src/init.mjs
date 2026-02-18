@@ -91,7 +91,7 @@ function initClaudeCode(workspace, trackerPath) {
     : `npx -y workspace-heatmap track "$FILE_PATH" --dir "${heatmapDir}"`
 
   settings.hooks.PostToolUse.push({
-    matcher: { tools: ['Read'] },
+    matcher: 'Read',
     hooks: [{ type: 'command', command: cmd }],
   })
 

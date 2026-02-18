@@ -1,9 +1,14 @@
 # Changelog
 
+## [0.4.3] — 2026-02-18
+
+### Fixed
+- **Claude Code hooks format corrected** — `matcher` is a string (tool name), not an object. Fixes settings validation error on init.
+
 ## [0.4.2] — 2026-02-18
 
 ### Fixed
-- **Claude Code hooks use new format** — Claude Code now requires `PostToolUse` with `matcher.tools` array and `hooks` array (was `postToolExecution` with flat `matcher`/`command`). Old format caused settings validation error.
+- **Claude Code hooks use new format** — Claude Code now requires `PostToolUse` with `hooks` array (was `postToolExecution` with flat `command`). Old format caused settings validation error.
 - Auto-migrates old `postToolExecution` hooks on re-init
 
 ## [0.4.1] — 2026-02-18
