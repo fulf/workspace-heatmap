@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.2] — 2026-02-18
+
+### Changed
+- **Dead files → Unread Documentation** — dead files section now only shows `.md` files. Code, configs, and non-documentation files are excluded. We care about unread documentation, not whether the agent reads `package.json`.
+- Updated all labels: "Dead Files" → "Unread Docs" / "Unread Documentation" in terminal report and HTML insights
+
 ## [0.5.1] — 2026-02-18
 
 ### Added

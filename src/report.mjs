@@ -63,7 +63,7 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
 
   // Always get workspace files (needed for doc coverage)
   const allFiles = getAllWorkspaceFiles(ws)
-  const deadFiles = allFiles.filter(f => !fileCounts[f])
+  const deadFiles = allFiles.filter(f => f.endsWith('.md') && !fileCounts[f])
 
   // Sort by count descending
   const sorted = Object.entries(fileCounts).sort((a, b) => b[1] - a[1])
@@ -122,7 +122,7 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
 
   if (all && deadFiles.length > 0) {
     console.log()
-    console.log(`${c.gray}⚫ DEAD — never read (${deadFiles.length} files)${c.reset}`)
+    console.log(`${c.gray}⚫ DEAD — unread documentation (${deadFiles.length} .md files)${c.reset}`)
     for (const file of deadFiles.slice(0, 15)) {
       const name = file.length > 50 ? '...' + file.slice(-47) : file
       console.log(`  ${c.gray}${name}${c.reset}`)
@@ -191,7 +191,7 @@ export function report({ dir = null, workspace = null, days = 30, json = false, 
   }
 
   if (deadFiles.length > 5) {
-    console.log(`  ${c.cyan}→${c.reset} ${deadFiles.length} files never read — dead weight in your workspace`)
+    console.log(`  ${c.cyan}→${c.reset} ${deadFiles.length} .md files never read — unread documentation in your workspace`)
   }
 
   if (coverage.mdTotal > 0 && coverage.mdCoverage < 50) {

@@ -100,9 +100,9 @@ function analyze(entries, allFiles, workspace, days) {
   const patterns = computePatterns(entries, sorted, sessionReads)
   const coverage = computeCoverage(entries, allFiles, workspace, days)
 
-  // Dead files
+  // Dead files — only .md files matter (we care about unread documentation, not code/config)
   const readFiles = new Set(Object.keys(fileCounts))
-  const deadFiles = allFiles.filter(f => !readFiles.has(f))
+  const deadFiles = allFiles.filter(f => f.endsWith('.md') && !readFiles.has(f))
 
   // Timestamps
   const timestamps = entries.map(e => e.ts).sort((a, b) => a - b)
@@ -178,7 +178,7 @@ function buildGlance(data) {
 
   // Dead zone
   if (data.deadFiles.length > 5) {
-    lines.push(`<strong>Dead weight:</strong> ${data.deadFiles.length} files have never been read. That's content your agent doesn't know exists — either it's not needed, or your workspace structure is hiding it.`)
+    lines.push(`<strong>Unread docs:</strong> ${data.deadFiles.length} .md files have never been read. That's documentation your agent doesn't know exists — either it's not needed, or your workspace structure is hiding it.`)
   }
 
   // Cold files insight
@@ -258,8 +258,8 @@ function generateHtml(data, workspace) {
   if (data.deadFiles.length > 3) {
     insights.push({
       icon: '💀',
-      title: `${data.deadFiles.length} files are dead weight`,
-      desc: 'These files exist in your workspace but have never been read. Archive them, move to a skill, or investigate if your agent should be reading them.',
+      title: `${data.deadFiles.length} .md files are unread documentation`,
+      desc: 'These documentation files exist in your workspace but have never been read. Archive them, move to a skill, or investigate if your agent should be reading them.',
     })
   }
   if (data.uniqueSessions > 5 && data.tiers.hot.length >= 2) {
@@ -313,7 +313,7 @@ function generateHtml(data, workspace) {
     { href: '#directories', label: 'Directories', show: true },
     { href: '#trend', label: 'Trend', show: data.dailyTrend.length > 1 },
     { href: '#insights', label: 'Insights', show: true },
-    { href: '#dead', label: 'Dead Files', show: data.deadFiles.length > 0 },
+    { href: '#dead', label: 'Unread Docs', show: data.deadFiles.length > 0 },
   ]
 
   return `<!DOCTYPE html>
@@ -441,7 +441,7 @@ function generateHtml(data, workspace) {
       <div class="stat"><div class="stat-value">${data.uniqueSessions}</div><div class="stat-label">Sessions</div></div>
       <div class="stat"><div class="stat-value">${data.tiers.hot.length}</div><div class="stat-label">Hot Files</div></div>
       ${cov.mdTotal > 0 ? `<div class="stat"><div class="stat-value" style="color:${covPctColor}">${cov.mdCoverage}%</div><div class="stat-label">Doc Coverage</div></div>` : ''}
-      <div class="stat"><div class="stat-value">${data.deadFiles.length}</div><div class="stat-label">Dead Files</div></div>
+      <div class="stat"><div class="stat-value">${data.deadFiles.length}</div><div class="stat-label">Unread Docs</div></div>
       <div class="stat"><div class="stat-value">${data.days}d</div><div class="stat-label">Period</div></div>
     </div>
 
@@ -632,8 +632,8 @@ function generateHtml(data, workspace) {
     </div>`).join('')}
 
     ${data.deadFiles.length > 0 ? `
-    <h2 id="dead">Dead Files</h2>
-    <p style="font-size:13px;color:#64748b;margin-bottom:12px;">These ${data.deadFiles.length} files exist in your workspace but have never been read by your agent.</p>
+    <h2 id="dead">Unread Documentation</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:12px;">These ${data.deadFiles.length} .md files exist in your workspace but have never been read by your agent.</p>
     <div class="dead-section">
       ${data.deadFiles.slice(0, 30).map(f => `<div class="dead-file">${esc(f)}</div>`).join('')}
       ${data.deadFiles.length > 30 ? `<div style="font-size:12px;color:#94a3b8;padding-top:8px;">… and ${data.deadFiles.length - 30} more</div>` : ''}
